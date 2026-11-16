@@ -212,6 +212,12 @@ world
 
 └── src
     ├── README.md
+    ├── collaborate1                     # 붓펜 드로잉 · 픽앤플레이스 통합 패키지
+    │   ├── config/registry.yaml         # 노드 엔트리포인트 및 경로 통합 관리
+    │   ├── collaborate1/core            # 공용 모듈 (cursive_font, run_logger, SVG)
+    │   ├── collaborate1/setup_tools     # 수동 조종 · 9점 캘리브레이션 · 티칭
+    │   ├── collaborate1/app             # 실제 실행 노드 (draw_multi_pen 등)
+    │   └── collaborate1/experiments     # 단위 테스트 및 과거 실험 코드
     ├── doosan-robot2                    # 외부 패키지 — read-only
     │   ├── LICENSE
     │   ├── README.md
@@ -236,9 +242,11 @@ world
     │   ├── onrobot_rg_control
     │   ├── onrobot_rg_description
     │   └── onrobot_rg_msgs
-    └── rg2
-        ├── m0609_rg2_bringup         # 커스텀 브링업 패키지
-        └── m0609_rg2_moveit
+    ├── rg2
+    │   ├── m0609_rg2_bringup          # 커스텀 브링업 패키지
+    │   └── m0609_rg2_moveit
+    ├── rokey
+    └── rokey1
 ```
 
 ---
@@ -250,10 +258,17 @@ world
   - `rokey` / `rokey1` / `collaborate1`: 기본 로봇 이동(`move.py`, `simple_input.py`, `moveit_py_demo.py`), 기어 작업(`gear.py`), 그리퍼 테스트(`grip_text.py`), SVG 샘플(`sample_drawing.svg`) 추가
 - **2026-11-14 — 드로잉 제어 방식 구현 및 실험**
   - `doosan-robot2/test/drawingtest1.py`: `movej` / `movel` 기반 초기 단순 이동 테스트
-  - `collaborate1/drawingtest1.py` (현 `drawingtest_force.py`): 순응 제어(`task_compliance_ctrl`) + 힘 제어(`set_desired_force`) 기반 최소 하강 힘 자동 캘리브레이션, 이동 중 외력 기준(`moving_baseline`) 접촉 감지, J6 방향 정렬 및 코너 리프트 드로잉 구현
-  - `collaborate1/drawingtest_ryu.py` (현 `drawingtest_slow.py`): 붓펜 보호를 위해 힘 제어를 제거하고 `0.2 mm` 단위 단계 하강 후 정지 상태 외력(`Fz`) 샘플링으로 접촉/과압을 판정하는 저속 안전 접촉 탐색 방식 도입 (`ENABLE_DRAWING = False` 테스트 모드 기본 적용)
-- **2026-11-16 — 패키지 정리 및 GitHub 공유**
-  - `collaborate1` 파일명 및 `setup.py` `console_scripts` 정리:
-    - `drawingtest1.py` (`drawingtest_bae`) → `drawingtest_force.py` (`drawingtest_force`)
-    - `drawingtest_ryu.py` (`drawingtest_ryu`) → `drawingtest_slow.py` (`drawingtest_slow`)
-  - 빌드 산출물(`build/`, `install/`, `log/`)을 `.gitignore`로 제외하고 `https://github.com/qownsdud/A4`에 워크스페이스 소스 업로드
+  - `collaborate1` (현 `experiments/drawingtest_force.py`): 순응 제어(`task_compliance_ctrl`) + 힘 제어(`set_desired_force`) 기반 최소 하강 힘 자동 캘리브레이션, 이동 중 외력 기준(`moving_baseline`) 접촉 감지, J6 방향 정렬 및 코너 리프트 드로잉 구현
+  - `collaborate1` (현 `experiments/drawingtest_slow.py`): 붓펜 보호를 위해 힘 제어를 제거하고 `0.2 mm` 단위 단계 하강 후 정지 상태 외력(`Fz`) 샘플링으로 접촉/과압을 판정하는 저속 안전 접촉 탐색 방식 도입
+- **2026-11-16 (오전) — GitHub 공유 및 `pentest` 통합**
+  - `drawingtest1.py` → `drawingtest_force.py`, `drawingtest_ryu.py` → `drawingtest_slow.py`로 정리
+  - `qownsdud/A4` 저장소 `ryu` 브랜치의 `pentest` 단위 테스트 코드들을 `collaborate1`로 통합하고 `setup.py` / `package.xml` 호환성 수정
+- **2026-11-16 (오후) — 기준 막대 높이 탐색, 필기체, 9점 캘리브레이션, 멀티펜 파이프라인 구축**
+  - `draw1.py` / `draw_routes.py`: 기준 막대 외력 접촉 후 `+2.0 mm`(굵은 선) / `+3.0 mm`(얇은 선) 상승 및 직선(`movel`)·곡선(`movesx`) 분리 그리기 구현
+  - `cursive_font.py` / `draw_cursive.py`: 대·소문자 52자 단선 필기체 및 진행 방향(`dy`) 기반 Z 두께(`2.0 ~ 3.0 mm`) 연속 변화 구현
+  - `manual_move.py` / `calibrate_plane.py`: PC 키보드 조그·그리퍼 조작·외력(`Fz`) 표시 및 9점 바닥 평면 기울기 보정(`~/.ros/plane_calibration.json`) 구현
+  - `teach_stick_slot.py` / `teach_pen_slots.py` / `pen_pick_place.py`: 기준 막대 및 펜 3개 위치 티칭(`+100 mm` 상공 접근·집기·홈·원위치) 분리 구현
+  - `draw_multi_pen.py` / `run_logger.py`: `홈 → 기준 막대 높이 측정·반납 → 펜 1(사각형)·2(삼각형)·3(원) 순차 그리기 → 홈` 1~14단계 통합 실행 및 터미널 실행 기록(`run_logs/<시작>_<종료>.txt`) 자동 저장 적용
+- **2026-11-16 (저녁) — 패키지 구조 리팩토링 및 YAML 통합 관리**
+  - `collaborate1` 내부를 `core/`, `setup_tools/`, `app/`, `experiments/` 서브모듈로 분류
+  - `config/registry.yaml`로 모든 노드 엔트리포인트 및 데이터/로그 경로를 일원화하고 `setup.py`가 YAML을 읽어 자동 등록하도록 개편
