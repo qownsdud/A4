@@ -28,12 +28,18 @@ setup(
     packages=find_packages(exclude=['test']),
     package_data={
         f'{package_name}.core': ['*.svg'],
+        f'{package_name}.test_image': ['*.json', '*.svg', '*.png'],
     },
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/config', ['config/registry.yaml']),
+        ('share/' + package_name + '/test_image', [
+            'collaborate1/test_image/test_image_strokes.json',
+            'collaborate1/test_image/test_image.svg',
+            'collaborate1/test_image/test_image.png',
+        ]),
     ],
     install_requires=['setuptools', 'PyYAML'],
     zip_safe=True,

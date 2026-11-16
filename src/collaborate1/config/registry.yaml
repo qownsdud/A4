@@ -8,6 +8,7 @@ paths:
   plane_calibration: "~/.ros/plane_calibration.json"
   run_logs: "/home/qownsdud/ws_cobot_pjt/ws_dsr/run_logs"
   svg_sample: "collaborate1/core/sample_drawing.svg"
+  image_strokes: "collaborate1/test_image/test_image_strokes.json"
 
 nodes:
   setup_tools:
@@ -25,6 +26,9 @@ nodes:
       desc: "펜 3개 잡는 위치 티칭 및 저장"
 
   app:
+    draw_image_multi_pen:
+      entry: "collaborate1.app.draw_image_multi_pen:main"
+      desc: "9점 직사각형 영역 내 벡터 이미지를 3개 펜이 나눠 그리는 1~14단계 노드"
     draw_multi_pen:
       entry: "collaborate1.app.draw_multi_pen:main"
       desc: "1~14단계 통합 멀티펜 드로잉 (막대 높이 측정 -> 펜1·2·3 그리기)"
