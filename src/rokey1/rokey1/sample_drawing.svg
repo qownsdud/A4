@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100mm" height="100mm">
+  <!-- 사각형 (집 본체) -->
+  <rect x="18" y="45" width="42" height="36" fill="none" stroke="black" stroke-width="1"/>
+  <!-- 직선 (지붕) -->
+  <path d="M 14 45 L 39 20 L 64 45" fill="none" stroke="black" stroke-width="1"/>
+  <!-- 원 (해) -->
+  <circle cx="78" cy="24" r="10" fill="none" stroke="black" stroke-width="1"/>
+  <!-- 곡률이 변하는 3차 베지어 곡선 (언덕/물결) -->
+  <path d="M 8 88 C 24 72, 42 96, 60 80 C 73 69, 84 86, 94 74" fill="none" stroke="black" stroke-width="1"/>
+</svg>
