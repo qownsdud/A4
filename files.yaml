@@ -30,6 +30,9 @@ tree:
         lineart_20261113_160322.png:
         lineart_20261113_160442.png:
         lineart_20261113_160640_506229.png:
+        lineart_20261113_164156_443219.png:
+        lineart_20261113_164544_944382.png:
+        lineart_20261117_161128_533942.png:
       latest_lineart.png:
     static:
       app.js:
@@ -52,8 +55,14 @@ tree:
     outputs:
       history:
         latest_lineart_comparison.png:
+        latest_lineart_comparison_20261113_164343.png:
+        latest_lineart_comparison_20261113_164552.png:
         latest_lineart_strokes_px.json:
+        latest_lineart_strokes_px_20261113_164343.json:
+        latest_lineart_strokes_px_20261113_164552.json:
         latest_lineart_vector.png:
+        latest_lineart_vector_20261113_164343.png:
+        latest_lineart_vector_20261113_164552.png:
         lineart_20261113_160322_comparison.png:
         lineart_20261113_160322_strokes_px.json:
         lineart_20261113_160322_vector.png:
@@ -109,10 +118,13 @@ tree:
       requirements.txt:
       test_pipeline.py:
     cobot_automation_proposal.html:
+  .gitignore:
   DSL기본.txt:
   file_manager.py:
   files.yaml:
   project_self_feedback.jpg:
+  README.md:
   test_file_manager.py:
+  실행코드.txt:
   아이디어.txt:
   전체_업무_파이프라인.txt:

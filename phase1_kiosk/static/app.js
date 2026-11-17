@@ -16,6 +16,7 @@
   const photoFileInput = document.getElementById("photoFileInput");
   const camVideo = document.getElementById("camVideo");
   const capturedPreview = document.getElementById("capturedPreview");
+  const safeGuideFrame = document.getElementById("safeGuideFrame");
   const camPlaceholder = document.getElementById("camPlaceholder");
   const countdownOverlay = document.getElementById("countdownOverlay");
   const captureCanvas = document.getElementById("captureCanvas");
@@ -74,6 +75,14 @@
     btnMirror.textContent = state.camMirrored ? "좌우 반전 ON" : "좌우 반전 OFF";
   }
 
+  function updateGuideVisibility() {
+    const showGuide =
+      !camVideo.hidden && paperSelect.value === "a4_landscape_margin";
+    safeGuideFrame.hidden = !showGuide;
+  }
+
+  paperSelect.addEventListener("change", updateGuideVisibility);
+
   async function startCamera() {
     clearError();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -97,6 +106,7 @@
       btnRetake.hidden = true;
       btnStartCam.textContent = "카메라 켜짐";
       applyMirrorClass();
+      updateGuideVisibility();
     } catch (err) {
       showError(`카메라를 열 수 없습니다: ${err.message || "권한을 확인해 주세요."}`);
     }
@@ -110,23 +120,43 @@
     btnStartCam.textContent = "카메라 켜기";
   }
 
+  function getCaptureTargetDims() {
+    const p = paperSelect.value;
+    if (p === "a4_landscape_margin") return { w: 771, h: 510 }; // 257:170 (A4 가로 - 사방 2cm)
+    if (p === "a4") return { w: 560, h: 792 };
+    if (p === "postcard") return { w: 500, h: 740 };
+    return { w: 768, h: 768 };
+  }
+
   function takeSnapshot() {
     if (!state.camStream || camVideo.videoWidth === 0) return;
     const vw = camVideo.videoWidth;
     const vh = camVideo.videoHeight;
-    const side = Math.min(vw, vh);
-    const sx = (vw - side) / 2;
-    const sy = (vh - side) / 2;
+    const target = getCaptureTargetDims();
+    const targetAspect = target.w / target.h;
+    const videoAspect = vw / vh;
 
-    captureCanvas.width = 768;
-    captureCanvas.height = 768;
+    let sx = 0;
+    let sy = 0;
+    let sw = vw;
+    let sh = vh;
+    if (videoAspect > targetAspect) {
+      sw = vh * targetAspect;
+      sx = (vw - sw) / 2;
+    } else {
+      sh = vw / targetAspect;
+      sy = (vh - sh) / 2;
+    }
+
+    captureCanvas.width = target.w;
+    captureCanvas.height = target.h;
     const cctx = captureCanvas.getContext("2d");
     cctx.save();
     if (state.camMirrored) {
-      cctx.translate(768, 0);
+      cctx.translate(target.w, 0);
       cctx.scale(-1, 1);
     }
-    cctx.drawImage(camVideo, sx, sy, side, side, 0, 0, 768, 768);
+    cctx.drawImage(camVideo, sx, sy, sw, sh, 0, 0, target.w, target.h);
     cctx.restore();
 
     captureCanvas.toBlob(
@@ -137,6 +167,7 @@
         capturedPreview.hidden = false;
         camVideo.hidden = true;
         camPlaceholder.hidden = true;
+        safeGuideFrame.hidden = true;
         btnRetake.hidden = false;
         btnCaptureNow.disabled = true;
         btnCaptureTimer.disabled = true;
@@ -185,6 +216,7 @@
       camPlaceholder.hidden = false;
     }
     btnRetake.hidden = true;
+    updateGuideVisibility();
   });
 
   photoFileInput.addEventListener("change", () => {
@@ -196,6 +228,7 @@
     capturedPreview.hidden = false;
     camVideo.hidden = true;
     camPlaceholder.hidden = true;
+    safeGuideFrame.hidden = true;
     btnRetake.hidden = false;
   });
 

@@ -91,14 +91,44 @@ def api_health() -> dict[str, object]:
     }
 
 
+SUPPORTED_PAPERS = set(PAPER_RATIOS) | {"a4_landscape_margin"}
+
+# A4 가로(297x210mm) 기준 3 px/mm 스케일 -> 전체 891x630 px, 사방 20mm(2cm) = 60px 여백, 내부 드로잉 771x510 px
+_A4_LANDSCAPE_W = 297 * 3
+_A4_LANDSCAPE_H = 210 * 3
+_A4_MARGIN_PX = 20 * 3
+_A4_DRAW_W = _A4_LANDSCAPE_W - (_A4_MARGIN_PX * 2)  # 771 (257mm)
+_A4_DRAW_H = _A4_LANDSCAPE_H - (_A4_MARGIN_PX * 2)  # 510 (170mm)
+
+
+def _fit_a4_landscape_with_2cm_margin(png_bytes: bytes) -> bytes:
+    """Place line art into 257x170mm drawing box centered on 297x210mm white A4 landscape."""
+    with Image.open(io.BytesIO(png_bytes)) as im:
+        rgb = im.convert("RGB")
+        src_w, src_h = rgb.size
+        scale = min(_A4_DRAW_W / max(1, src_w), _A4_DRAW_H / max(1, src_h))
+        new_w = max(1, int(round(src_w * scale)))
+        new_h = max(1, int(round(src_h * scale)))
+        resized = rgb.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        canvas = Image.new("RGB", (_A4_LANDSCAPE_W, _A4_LANDSCAPE_H), (255, 255, 255))
+        offset_x = _A4_MARGIN_PX + (_A4_DRAW_W - new_w) // 2
+        offset_y = _A4_MARGIN_PX + (_A4_DRAW_H - new_h) // 2
+        canvas.paste(resized, (offset_x, offset_y))
+
+        buf = io.BytesIO()
+        canvas.save(buf, format="PNG")
+        return buf.getvalue()
+
+
 @app.post("/api/kiosk/photo")
 async def kiosk_photo_to_lineart(
     photo: UploadFile = File(..., description="웹캠 촬영 또는 업로드 사진"),
     detail: str = Form("medium", description="선화 디테일 수준 (high, medium, low)"),
-    paper: str = Form("a4", description="용지 규격 (a4, postcard, square)"),
+    paper: str = Form("a4_landscape_margin", description="용지 규격 (a4_landscape_margin, a4, postcard, square)"),
 ) -> Response:
     """Convert webcam photo into B&W line art via phase2_lib_lineart (Local DL)."""
-    if paper not in PAPER_RATIOS:
+    if paper not in SUPPORTED_PAPERS:
         raise HTTPException(status_code=400, detail=f"지원하지 않는 용지 규격입니다: {paper}")
     if detail not in DL_DETAIL_PRESETS:
         raise HTTPException(
@@ -126,6 +156,7 @@ async def kiosk_photo_to_lineart(
         out_dir = tmp_path / "out"
         in_path.write_bytes(clean_photo_bytes)
 
+        cli_paper = "none" if paper == "a4_landscape_margin" else paper
         cmd = [
             str(PHASE2_LIB_PYTHON),
             str(PHASE2_LIB_DIR / "main.py"),
@@ -143,7 +174,7 @@ async def kiosk_photo_to_lineart(
             str(preset["min_line_area"]),
             "--binarize",
             "--paper",
-            paper,
+            cli_paper,
             "--output-dir",
             str(out_dir),
         ]
@@ -160,6 +191,8 @@ async def kiosk_photo_to_lineart(
             raise HTTPException(status_code=500, detail="DL 선화 결과 파일이 생성되지 않았습니다.")
 
         out_bytes = produced[0].read_bytes()
+        if paper == "a4_landscape_margin":
+            out_bytes = _fit_a4_landscape_with_2cm_margin(out_bytes)
         with Image.open(io.BytesIO(out_bytes)) as im:
             w, h = im.size
         elapsed = time.perf_counter() - t0

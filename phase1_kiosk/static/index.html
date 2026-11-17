@@ -39,9 +39,12 @@
       <div class="camera-stage">
         <video id="camVideo" autoplay playsinline muted></video>
         <img id="capturedPreview" alt="촬영된 사진 미리보기" hidden />
+        <div class="safe-guide-frame" id="safeGuideFrame" hidden>
+          <span>실제 드로잉 영역 (사방 2cm 여백 제외 · 25.7 × 17.0 cm)</span>
+        </div>
         <div class="cam-placeholder" id="camPlaceholder">
           <p>📷 <strong>카메라 켜기</strong>를 누르거나 사진 파일을 선택하세요</p>
-          <small>브라우저 상단에서 카메라 권한을 허용해 주세요</small>
+          <small>A4 가로(29.7 × 21.0 cm) 기준 사방 2cm 여백으로 자동 추출됩니다</small>
         </div>
         <div class="countdown-overlay" id="countdownOverlay" hidden>3</div>
         <canvas id="captureCanvas" hidden></canvas>
@@ -83,7 +86,8 @@
           <div>
             <label for="paperSelect">드로잉 용지 규격</label>
             <select id="paperSelect">
-              <option value="a4" selected>A4 (210 × 297 mm)</option>
+              <option value="a4_landscape_margin" selected>A4 가로 · 사방 2cm 여백 (25.7 × 17.0 cm)</option>
+              <option value="a4">A4 세로 (210 × 297 mm)</option>
               <option value="postcard">엽서 Postcard (100 × 148 mm)</option>
               <option value="square">정사각형 Square (1 : 1)</option>
             </select>
