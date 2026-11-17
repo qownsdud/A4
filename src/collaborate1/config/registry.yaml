@@ -6,7 +6,10 @@ paths:
   stick_slot: "~/.ros/stick_slot.json"
   pen_slots: "~/.ros/pen_slots.json"
   plane_calibration: "~/.ros/plane_calibration.json"
+  draw_height_test_state: "~/.ros/draw_height_test_state.json"
   run_logs: "/home/qownsdud/ws_cobot_pjt/ws_dsr/run_logs"
+  drawing_previews: "/home/qownsdud/ws_cobot_pjt/ws_dsr/drawing_previews"
+  latest_lineart: "/home/qownsdud/Documents/rokey_collaborate_1/phase1_kiosk/confirmed_outputs/latest_lineart.png"
   svg_sample: "collaborate1/core/sample_drawing.svg"
   image_strokes: "collaborate1/test_image/test_image_strokes.json"
 
@@ -26,6 +29,12 @@ nodes:
       desc: "펜 3개 잡는 위치 티칭 및 저장"
 
   app:
+    draw_height_test:
+      entry: "collaborate1.app.draw_height_test:main"
+      desc: "높이 테스트용 고정 도형(펜1:정사각형, 펜2:정삼각형, 펜3:원) 멀티펜 드로잉"
+    draw_image_standalone:
+      entry: "collaborate1.app.draw_image_standalone:main"
+      desc: "이미지 변환·캘리브레이션 매핑·3개 펜 분할 그리기를 단일 파일로 독립 실행"
     draw_image_multi_pen:
       entry: "collaborate1.app.draw_image_multi_pen:main"
       desc: "9점 직사각형 영역 내 벡터 이미지를 3개 펜이 나눠 그리는 1~14단계 노드"
@@ -76,6 +85,9 @@ nodes:
     force_control_test:
       entry: "collaborate1.experiments.force_control_test:main"
       desc: "힘 제어 단위 테스트"
+    force_compare:
+      entry: "collaborate1.experiments.force_compare:main"
+      desc: "힘 제어/센서 비교 단위 테스트"
     force_compare:
       entry: "collaborate1.experiments.force_compare:main"
       desc: "힘 센서 비교 단위 테스트"
