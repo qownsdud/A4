@@ -1,0 +1,26 @@
+# [역할] JobManager Action Client ↔ DrawingController Action Server의 장시간 작업 계약
+# 현재 JobManager에는 Client가 구현되어 있으나 실제 로봇 Controller Server는 팀원 구현/검증이 필요합니다.
+# Action은 Goal(시작 요청) / Result(최종 결과) / Feedback(진행 중 이벤트)로 나뉩니다.
+# ===== Goal: 새 드로잉 실행 또는 일시정지 뒤 나머지 획 수행 요청 =====
+string job_id               # 공통 작업 ID
+string plan_path            # Controller도 읽을 수 있는 DrawingPlan 절대 경로
+string plan_sha256          # 저장 후 변조/변경 여부 확인용 파일 SHA-256
+uint32 start_stroke_id      # 1부터 시작; 재개 시 마지막 완료 획+1
+---
+# ===== Result: 실제 작업 결과 / 안전 중단 여부를 확인할 최종 응답 =====
+bool success               # 전체 성공일 때만 true
+string final_state         # COMPLETED | INTERRUPTED_SAFE | FAILED
+uint32 completed_strokes   # 펜 이격 확인된 마지막 연속 완료 stroke_id
+bool pen_up_confirmed      # 실제 펜의 안전 이격 확인 여부
+string error_code          # Controller 오류 코드
+string message             # 오류/완료 상황 설명
+---
+# ===== Feedback: 작업 진행 중 Controller가 JobManager에 보내는 메시지 =====
+uint32 stroke_id           # 피드백이 적용되는 획 ID (시작/심장박동 이벤트는 0 가능)
+string event               # STARTED | HEARTBEAT | STROKE_STARTED | STROKE_COMPLETED
+string pen_id              # 획에 사용 중인 펜
+bool pen_up_confirmed      # STROKE_COMPLETED는 실제 펜 이격 확인 시 true
+string message             # 작업 설명
+# [안전 주의] ROS Action Cancel 응답은 PAUSE/CANCEL 구별 불가.
+# Controller는 실제 정지 + 펜 이격을 확인한 후 CANCELED/INTERRUPTED_SAFE 결과를 줘야 합니다.
+# JobManager가 기록한 PAUSING 또는 STOPPING으로 PAUSED 또는 STOPPED를 구별합니다.

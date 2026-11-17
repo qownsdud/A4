@@ -1,0 +1,12 @@
+# [역할] Bridge → JobManager : DrawingPlan 파일 경로로 신규 작업 생성 요청
+# CreateJob을 처리한 직후의 accepted=true는 '로봇 동작 완료'가 아니라 '요청 접수'입니다.
+# [요청 데이터]
+string job_id       # 작업 전체에 공통으로 쓰는 고유 ID (예: JOB_001)
+string plan_path    # 존재하는 로봇용 drawing_plan.json 절대 경로 (이미지 파일 아님)
+---
+# [응답 데이터]
+bool accepted       # JobManager가 새 작업 등록 요청을 수락했는가
+string job_id       # 요청한 작업 ID를 그대로 반환
+string state        # 현재 JobManager 상태 (QUEUED 등)
+string error_code   # 거부/오류 이유 코드, 정상일 때는 빈 문자열
+string message      # 사람에게 보여줄 간단한 설명

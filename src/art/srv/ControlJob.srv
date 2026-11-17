@@ -1,0 +1,15 @@
+# Bridge → JobManager : 기존 작업에 PAUSE / RESUME / CANCEL 명령 보내기
+# 초기 시스템 아키텍처 이미지에는 없었고, 추가한 Service
+# accepted=true는 '명령 수락'임 '실제 로봇 정지' 아님
+# PAUSING → PAUSED는 Controller의 실제 안전 정지 확인 이후에만 진행
+# 요청 데이터
+string job_id       # 기존 작업의 ID
+string command      # PAUSE, RESUME, CANCEL
+string request_id   # 네트워크 재전송/중복 클릭 방지용 명령별 고유 ID
+---
+# 응답 데이터
+bool accepted       # 상태 머신이 명령 요청을 수락했는지
+string job_id       # 대상 작업 ID
+string state        # 명령 직후 상태 (PAUSING, STOPPING, QUEUED 등)
+string error_code   # INVALID_TRANSITION, REQUEST_ID_CONFLICT 등
+string message      # 요청 처리 설명
