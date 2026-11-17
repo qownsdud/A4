@@ -64,16 +64,21 @@ rokey_collaborate_1/
 │       └── history/                   # 이전 확정 라인아트 아카이브 (타임스탬프별)
 │
 ├── phase2_lib_lineart/                # [Phase 2] 로컬 딥러닝 & OpenCV 라인아트 변환 모듈
-│   ├── main.py                        # CLI 실행 및 DL vs OpenCV 비교/벤치마크 러너
+│   ├── README.md                      # Phase 2 모듈 가이드 (mfl_ld 하이브리드 파이프라인)
+│   ├── main.py                        # CLI 실행 및 mfl_ld/DL/OpenCV 비교/벤치마크 러너
+│   ├── lineart_mfl_ld.py              # MediaPipe Face ROI + Canny & LineartDetector 하이브리드 변환기
 │   ├── lineart_dl.py                  # controlnet_aux LineartDetector 기반 선화 추출
 │   ├── lineart_cv.py                  # OpenCV 기반 선화 추출 (canny / dodge / adaptive)
 │   ├── utils.py                       # 용지 규격 비율(PAPER_RATIOS: A4/엽서/정사각형) 및 유틸리티
 │   ├── requirements.txt               # Phase 2 Python 의존성 목록
+│   ├── models/                        # MediaPipe 얼굴 랜드마크 모델
+│   │   └── face_landmarker.task
 │   ├── samples/                       # 테스트용 샘플 입력 이미지
 │   │   └── person1.jpg
 │   └── outputs/                       # 라인아트 변환 테스트 출력 결과
 │       ├── person1_cv_canny.png
-│       └── person1_dl_smooth2_clean.png
+│       ├── person1_dl_smooth2_clean.png
+│       └── person1_mfl_ld.png
 │
 └── phase3_path_planner/               # [Phase 3] 벡터 Stroke 추출 및 경로 최적화 모듈
     ├── main.py                        # CLI 엔트리포인트 (latest_lineart.png → 벡터 JSON & 시각화)

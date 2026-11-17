@@ -18,9 +18,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--method",
-        choices=["dl", "cv", "both"],
-        default="cv",
-        help="변환 방식 선택 (dl: controlnet_aux, cv: OpenCV, both: 둘 다 실행)",
+        choices=["mfl_ld", "dl", "cv", "both"],
+        default="mfl_ld",
+        help="변환 방식 선택 (mfl_ld: 확정 하이브리드[기본], dl: LineartDetector, cv: OpenCV, both: dl+cv 비교)",
     )
     parser.add_argument(
         "--cv-mode",
@@ -83,6 +83,33 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = input_path.stem
     paper = None if args.paper == "none" else args.paper
+
+    if args.method == "mfl_ld":
+        from lineart_dl import LineartDLConfig
+        from lineart_mfl_ld import LineartConverterMflLd, LineartMflLdConfig
+
+        t_load_start = time.perf_counter()
+        dl_cfg = LineartDLConfig(
+            coarse=args.coarse,
+            detect_resolution=args.resolution,
+            image_resolution=args.resolution,
+            pre_smooth=args.pre_smooth,
+            binarize=args.binarize,
+            line_threshold=args.line_threshold,
+            min_line_area=args.min_line_area,
+        )
+        mfl_cfg = LineartMflLdConfig(paper=paper, dl_config=dl_cfg)
+        converter_mfl = LineartConverterMflLd(mfl_cfg)
+        t_load = time.perf_counter() - t_load_start
+
+        t_inf_start = time.perf_counter()
+        mfl_out = output_dir / f"{stem}_mfl_ld.png"
+        converter_mfl.convert_to_file(input_path, mfl_out)
+        t_inf = time.perf_counter() - t_inf_start
+        print(
+            f"[MFL(Canny)+LD ({converter_mfl.dl_converter.device})] "
+            f"모델 로드: {t_load:.2f} s | 추론: {t_inf:.2f} s -> {mfl_out}"
+        )
 
     if args.method in ("cv", "both"):
         cv_cfg = LineartCVConfig(
