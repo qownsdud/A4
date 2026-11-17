@@ -255,7 +255,7 @@ world
 
 - **2026-11-12 — 기반 워크스페이스 및 기초 테스트 구성**
   - `ahnisinc/cobot_rg2` (`doosan-robot2`, `onrobot-ros2`, `rg2`, `rokey`) 기반 M0609 + RG2 ROS 2 Jazzy 워크스페이스 구축
-  - `rokey` / `rokey1` / `collaborate1`: 기본 로봇 이동(`move.py`, `simple_input.py`, `moveit_py_demo.py`), 기어 작업(`gear.py`), 그리퍼 테스트(`grip_text.py`), SVG 샘플(`sample_drawing.svg`) 추가
+  - `rokey` / `rokey1` / `collaborate1`: 기본 로봇 이동(`move.py`, `simple_input.py`, `moveit_py_demo.py`), 기어 작업(`gear.py`), 그리퍼 테스트(`grip_test.py`), SVG 샘플(`sample_drawing.svg`) 추가
 - **2026-11-14 — 드로잉 제어 방식 구현 및 실험**
   - `doosan-robot2/test/drawingtest1.py`: `movej` / `movel` 기반 초기 단순 이동 테스트
   - `collaborate1` (현 `experiments/drawingtest_force.py`): 순응 제어(`task_compliance_ctrl`) + 힘 제어(`set_desired_force`) 기반 최소 하강 힘 자동 캘리브레이션, 이동 중 외력 기준(`moving_baseline`) 접촉 감지, J6 방향 정렬 및 코너 리프트 드로잉 구현

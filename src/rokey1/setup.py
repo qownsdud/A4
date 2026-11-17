@@ -28,10 +28,7 @@ setup(
     entry_points={
         'console_scripts': [
             'simple_move = rokey1.move:main',
-            'grip_test = rokey1.grip_text:main',
             'gear = rokey1.gear:main',
-            'drawing_test1 = rokey1.drawingtest1:main',
-            'drawing_ryu = rokey1.drawingtest_ryu:main',
         ],
     },
 )

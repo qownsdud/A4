@@ -1,0 +1,49 @@
+[RunLog] 시작 (draw_multi_pen): 2026-11-16 19:02:41
+[INFO] [1794823361.199644044] [dsr01.draw_multi_pen]: [기울기 보정] 적용: a=+0.002184, b=-0.000099
+[INFO] [1794823363.766371477] [dsr01.draw_multi_pen]: [기준 막대] 집기 시작
+[INFO] [1794823364.268889165] [dsr01.draw_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
+[INFO] [1794823373.968681595] [dsr01.draw_multi_pen]: 그리퍼: 잡기 (DO1=1, DO2=0)
+[INFO] [1794823379.166334372] [dsr01.draw_multi_pen]: [기준 막대] 집기 완료
+[INFO] [1794823383.977495291] [dsr01.draw_multi_pen]: [높이 측정] Baseline Fz=-10.664 N, noise=0.500 N
+[INFO] [1794823386.949677377] [dsr01.draw_multi_pen]: 막대 하강 1.50/20.00 mm | deltaFz=+0.031 N
+[INFO] [1794823387.949958380] [dsr01.draw_multi_pen]: 막대 하강 2.00/20.00 mm | deltaFz=+0.062 N
+[INFO] [1794823388.950436333] [dsr01.draw_multi_pen]: 막대 하강 2.50/20.00 mm | deltaFz=+0.237 N
+[INFO] [1794823389.950941349] [dsr01.draw_multi_pen]: 막대 하강 3.00/20.00 mm | deltaFz=+0.215 N
+[INFO] [1794823390.949833554] [dsr01.draw_multi_pen]: 막대 하강 3.50/20.00 mm | deltaFz=+0.238 N
+[INFO] [1794823391.949062068] [dsr01.draw_multi_pen]: 막대 하강 4.00/20.00 mm | deltaFz=+0.178 N
+[INFO] [1794823392.950349619] [dsr01.draw_multi_pen]: 막대 하강 4.50/20.00 mm | deltaFz=+8.498 N
+[INFO] [1794823393.949617371] [dsr01.draw_multi_pen]: 막대 하강 5.00/20.00 mm | deltaFz=+16.841 N
+[INFO] [1794823393.952437798] [dsr01.draw_multi_pen]: [높이 측정 완료] 바닥 Z=317.67 mm
+[INFO] [1794823396.366298798] [dsr01.draw_multi_pen]: [기준 막대] 원위치 시작
+[INFO] [1794823406.068532021] [dsr01.draw_multi_pen]: 그리퍼: 놓기 (DO1=0, DO2=1)
+[INFO] [1794823411.266659504] [dsr01.draw_multi_pen]: [기준 막대] 원위치 완료
+[INFO] [1794823411.266994882] [dsr01.draw_multi_pen]: [펜 1] 집기 시작
+[INFO] [1794823411.769631032] [dsr01.draw_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
+[INFO] [1794823419.669546854] [dsr01.draw_multi_pen]: 그리퍼: 잡기 (DO1=1, DO2=0)
+[INFO] [1794823424.866549428] [dsr01.draw_multi_pen]: [펜 1] 집기 완료
+[INFO] [1794823424.866887663] [dsr01.draw_multi_pen]: [그리기] 정사각형 시작 (mode=line, offset=+14.0 mm)
+[INFO] [1794823443.466827178] [dsr01.draw_multi_pen]: [그리기] 정사각형 완료
+[INFO] [1794823443.467179152] [dsr01.draw_multi_pen]: [펜 1] 원위치 시작
+[INFO] [1794823453.870023876] [dsr01.draw_multi_pen]: 그리퍼: 놓기 (DO1=0, DO2=1)
+[INFO] [1794823459.066929873] [dsr01.draw_multi_pen]: [펜 1] 원위치 완료
+[INFO] [1794823459.067185723] [dsr01.draw_multi_pen]: [펜 2] 집기 시작
+[INFO] [1794823459.570147480] [dsr01.draw_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
+[INFO] [1794823466.669085175] [dsr01.draw_multi_pen]: 그리퍼: 잡기 (DO1=1, DO2=0)
+[INFO] [1794823471.867030827] [dsr01.draw_multi_pen]: [펜 2] 집기 완료
+[INFO] [1794823471.867369326] [dsr01.draw_multi_pen]: [그리기] 정삼각형 시작 (mode=line, offset=+14.0 mm)
+[INFO] [1794823487.667281993] [dsr01.draw_multi_pen]: [그리기] 정삼각형 완료
+[INFO] [1794823487.667639971] [dsr01.draw_multi_pen]: [펜 2] 원위치 시작
+[INFO] [1794823497.470360175] [dsr01.draw_multi_pen]: 그리퍼: 놓기 (DO1=0, DO2=1)
+[INFO] [1794823502.667560931] [dsr01.draw_multi_pen]: [펜 2] 원위치 완료
+[INFO] [1794823502.668027756] [dsr01.draw_multi_pen]: [펜 3] 집기 시작
+[INFO] [1794823503.171869552] [dsr01.draw_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
+[INFO] [1794823510.270366428] [dsr01.draw_multi_pen]: 그리퍼: 잡기 (DO1=1, DO2=0)
+[INFO] [1794823515.467292624] [dsr01.draw_multi_pen]: [펜 3] 집기 완료
+[INFO] [1794823515.467575337] [dsr01.draw_multi_pen]: [그리기] 원 시작 (mode=spline, offset=+14.0 mm)
+[INFO] [1794823556.367388415] [dsr01.draw_multi_pen]: [그리기] 원 완료
+[INFO] [1794823556.367656572] [dsr01.draw_multi_pen]: [펜 3] 원위치 시작
+[INFO] [1794823566.169620174] [dsr01.draw_multi_pen]: 그리퍼: 놓기 (DO1=0, DO2=1)
+[INFO] [1794823571.367889221] [dsr01.draw_multi_pen]: [펜 3] 원위치 완료
+[INFO] [1794823574.169322550] [dsr01.draw_multi_pen]: 그리퍼: 기본 (DO1=0, DO2=0)
+[INFO] [1794823574.169925269] [dsr01.draw_multi_pen]: 1~14단계 전체 작업 완료!
+[RunLog] 종료 (draw_multi_pen): 2026-11-16 19:06:14

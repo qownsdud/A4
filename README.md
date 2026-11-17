@@ -1,274 +1,70 @@
-# M0609 + RG2 ROS2 Workspace
+# `ws_dsr` — Doosan M0609 + RG2 라인아트 드로잉 ROS2 워크스페이스 (`bae` 브랜치)
 
-Doosan M0609 협동로봇 + OnRobot RG2 그리퍼 통합 ROS2 워크스페이스
+두산 협동로봇(M0609)과 OnRobot RG2 그리퍼를 기반으로, 키오스크 입력 → 라인아트 변환 → 벡터 경로 추출 → 로봇 드로잉 제어까지 수행하는 **ROS2 colcon 워크스페이스**입니다.
 
 ---
 
-## 요구사항
+## 1. 폴더 구조 (정리 기준)
 
-- Ubuntu 24.04
-- ROS2 Jazzy
-- Intel RealSense SDK 2.0
+협업 시 혼동을 줄이기 위해 빌드 산출물(`build/`, `install/`, `log/`), 캐시(`__pycache__/`), 중첩 `.git`은 제외하고, 백업/유틸리티/소스를 목적별로 분리했습니다.
 
-```bash
-sudo apt update
-
-# 기본 도구 및 라이브러리
-sudo apt install libpoco-dev
-
-# ROS2 빌드 및 실행 관련
-sudo apt install ros-jazzy-joint-state-publisher-gui \
-    ros-jazzy-xacro \
-    ros-jazzy-realsense2-camera \
-    ros-jazzy-realsense2-description \
-    ros-jazzy-ros-gz
-
-# 제어 및 하드웨어 인터페이스
-sudo apt install ros-jazzy-hardware-interface \
-    ros-jazzy-ros2-control \
-    ros-jazzy-ros2-controllers
-
-# OnRobot 그리퍼 드라이버 의존성
-pip3 install pymodbus==3.6.9
+```text
+.
+├── .gitignore                         # ROS2 빌드 산출물(build/install/log), 캐시, 민감 파일 제외
+├── README.md                          # 워크스페이스 구조, 정리 내역 및 빌드/실행 가이드
+│
+├── src/                               # ROS2 colcon 워크스페이스 소스 패키지
+│   ├── README.md                      # M0609 + RG2 상세 환경 설정 및 패키지 히스토리
+│   ├── art/                           # 통합 아트 드로잉 ROS2 패키지 (kiosk, lineart, path_planner, drawing_controller, job_manager)
+│   ├── collaborate1/                  # 드로잉 앱·실험·캘리브레이션·필압 테스트 패키지
+│   ├── doosan-robot2/                 # 두산 협동로봇 ROS2 드라이버 및 URDF/MoveIt2 패키지
+│   ├── onrobot-ros2/                  # OnRobot 그리퍼 ROS2 드라이버
+│   ├── rg2/                           # RG2 그리퍼 제어/시뮬레이션 패키지
+│   ├── rokey/                         # 초기 로봇 이동 및 MoveIt Python 데모 패키지
+│   └── rokey1/                        # 초기 기어 작업/이동 테스트 패키지
+│
+├── archive/                           # 초기 백업 및 단독 실험 스크립트 (ROS2 빌드 대상에서 분리)
+│   ├── collaborate1_backup/           # (구 src/collaborate1_codeback) 초기 실험 백업 스크립트
+│   └── doosan_test/
+│       └── drawingtest1.py            # (구 src/doosan-robot2/test/drawingtest1.py) 초기 이동 테스트
+│
+├── tools/                             # 워크스페이스 관리 유틸리티
+│   ├── file_manager.py                # files.yaml 기반 파일 트리 조회 및 일괄 이름/경로 관리 도구
+│   └── files.yaml                     # 워크스페이스 파일 트리 정의 매니페스트
+│
+├── drawing_previews/                  # 벡터 경로 변환 미리보기 이미지 (latest_preview.png 및 history/)
+├── run_logs/                          # 실행 로그 텍스트 파일
+└── calibration_backup/                # ~/.ros/ 캘리브레이션 및 슬롯 티칭 JSON 백업
+    ├── draw_height_test_state.json
+    ├── pen_slots.json
+    ├── plane_calibration.json
+    └── stick_slot.json
 ```
 
 ---
 
-## 패키지 설치
+## 2. 주요 정리 및 파일명 정정 내역
+
+| 구분 | 변경 전 | 변경 후 | 사유 |
+| :--- | :--- | :--- | :--- |
+| 파일명 오타 수정 | `src/collaborate1/collaborate1/experiments/grip_text.py` | `src/collaborate1/collaborate1/experiments/grip_test.py` | 오타(`text` → `test`) 정정 및 `config/registry.yaml`, `src/README.md` 참조 동기화 |
+| 백업 폴더 분리 | `src/collaborate1_codeback/` | `archive/collaborate1_backup/` | 활성 ROS2 패키지(`src/collaborate1/`)와의 혼동 방지 |
+| 단독 테스트 분리 | `src/doosan-robot2/test/drawingtest1.py` | `archive/doosan_test/drawingtest1.py` | 외부 베이스 패키지(`doosan-robot2`) 내부의 임의 테스트 파일 분리 |
+| 유틸리티 정리 | `./file_manager.py`, `./files.yaml` | `tools/file_manager.py`, `tools/files.yaml` | 루트 디렉터리 가독성 개선 |
+| 중첩 Git 제거 | `src/.git/` | 제거 | 서브모듈(gitlink)로 묶여 파일이 누락되는 문제 방지 |
+
+---
+
+## 3. 빌드 및 실행 방법 (ROS2 Jazzy)
+
+상세 의존성 설치 및 DRCF 에뮬레이터 설정은 [`src/README.md`](./src/README.md)를 참고하세요.
 
 ```bash
-mkdir -p ~/ws_cobot_pjt/ws_dsr/src
-
-# ahnisinc 공식 패키지
-cd ~/ws_cobot_pjt/ws_dsr/src
-git clone https://github.com/ahnisinc/cobot_rg2
-
-# package.xml 의존성 자동 설치 (MoveIt2 등 누락 키 보강)
-cd ~/ws_cobot_pjt/ws_dsr
+# 워크스페이스 루트에서 의존성 설치 및 빌드
 rosdep install -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
-```
-
-> `onrobot_rg_control` 의 `message_runtime` 키는 ROS1 잔재라 경고가 나오지만 `-r` 플래그로 무시되어 빌드엔 영향 없음.
-
----
-
-## 초기 설정 (최초 1회)
-
-### DRCF 에뮬레이터 (virtual 모드 motion service용)
-
-virtual 모드에서 `movej` 등 motion service를 사용하려면 Doosan DRCF 에뮬레이터(Docker) 설치가 필요.
-
-```bash
-# Docker engine 미설치 시 먼저 설치: https://docs.docker.com/engine/install/ubuntu/
-
-# 현재 사용자를 docker 그룹에 추가 (launch에서 docker run 호출 시 필수)
-sudo usermod -aG docker $USER
-newgrp docker
-
-# 에뮬레이터 이미지 pull
-cd ~/ws_cobot_pjt/ws_dsr/src/doosan-robot2
-chmod +x ./install_emulator.sh
-sudo ./install_emulator.sh
-```
-
-> docker 그룹 가입 후 sudo 없이도 동작하지만 upstream 안내를 따라 sudo 형태로 기재. 그룹 변경 사항 적용을 위해 새 셸 또는 재로그인 필요.
-
-### Real 모드 사전 조건
-
-- 로봇 IP: `192.168.1.100`
-- 그리퍼 IP: `192.168.1.1` (OnRobot 컴퓨트박스, 고정)
-- UDP 포트 권한 설정:
-  ```bash
-  sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
-  # 재부팅 후에도 유지:
-  echo 'net.ipv4.ip_unprivileged_port_start=0' | sudo tee /etc/sysctl.d/99-ros2-doosan.conf
-  ```
-
-### RealSense udev rules
-
-udev rules 미설치 시 스트리밍 중 `xioctl(VIDIOC_QBUF) failed — No such device` 에러 발생.
-
-```bash
-sudo curl https://raw.githubusercontent.com/IntelRealSense/librealsense/master/config/99-realsense-libusb.rules \
-  -o /etc/udev/rules.d/99-realsense-libusb.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-적용 후 USB 재연결 필요.
-
----
-
-## 빌드
-
-```bash
-cd ~/ws_cobot_pjt/ws_dsr
-colcon build --symlink-install
+colcon build
 source install/setup.bash
+
+# 통합 아트 드로잉 시스템 실행
+ros2 launch art art_system.launch.py
 ```
-
----
-
-## 실행
-
-환경 설정:
-
-```bash
-source ~/ws_cobot_pjt/ws_dsr/install/setup.bash
-```
-
-### Virtual 모드 (시뮬레이션)
-
-```bash
-# 브링업 (그리퍼만)
-ros2 launch m0609_rg2_bringup bringup.launch.py
-
-# 브링업 (RealSense 카메라 포함)
-ros2 launch m0609_rg2_bringup bringup_camera.launch.py
-
-```
-
-### Real 모드 (실제 로봇)
-
-```bash
-# 브링업 (그리퍼만)
-ros2 launch m0609_rg2_bringup bringup.launch.py mode:=real host:=192.168.1.100 model:=m0609
-
-# 브링업 (RealSense 카메라 포함)
-ros2 launch m0609_rg2_bringup bringup_camera.launch.py mode:=real host:=192.168.1.100 model:=m0609
-
-```
-
-### Virtual / Real 모드 그리퍼 동작 차이
-
-virtual 모드에서 `gripper_virtual_node`(bringup에 포함)가 `/onrobot/sendCommand` 서비스로 RViz 시각화 담당. OnRobot RG2 Modbus 제어 미포함.
-
-| 항목 | real 모드 | virtual 모드 |
-|------|-----------|-------------|
-| 그리퍼 제어 | OnRobot 드라이버 (Modbus TCP) | Modbus 미포함 |
-| 완료 신호 | 디지털 입력 핀 감지 | `/onrobot/sendCommand` 응답 (애니메이션 완료 시) |
-| RViz 그리퍼 상태 | `/gripper_joint_states` (OnRobot 드라이버) | `/gripper_joint_states` (gripper_virtual_node) |
-| 파지력 / 접촉 | 실제 물리 동작 | 시뮬레이션 없음 |
-| Tool/TCP 프리셋 | DRCF 등록값 사용 | 설정 스킵 (에뮬레이터 미등록) |
-
-### RealSense 주요 토픽
-
-| 토픽 | 설명 |
-|------|------|
-| `/camera/color/image_raw` | RGB 컬러 이미지 |
-| `/camera/aligned_depth_to_color/image_raw` | 컬러 정렬 뎁스 이미지 |
-| `/camera/depth/color/points` | RGB 포인트클라우드 |
-| `/camera/color/camera_info` | 컬러 카메라 내부 파라미터 |
-
-`default.rviz` 사전 구성 display:
-- **Color Image** — `/camera/color/image_raw`
-- **Depth Image** — `/camera/aligned_depth_to_color/image_raw`
-- **PointCloud2** — `/camera/depth/color/points`
-
----
-
-## TF 구조
-
-### bringup.launch.py (그리퍼만)
-
-```
-world
-└── base_link
-    └── link1 → link2 → link3 → link4 → link5 → link6
-                                                    └── tool0
-                                                        └── rg2_base_link
-                                                            ├── rg2_left_outer_knuckle
-                                                            │   ├── rg2_left_inner_knuckle
-                                                            │   └── rg2_left_inner_finger
-                                                            └── rg2_right_outer_knuckle
-                                                                ├── rg2_right_inner_knuckle
-                                                                └── rg2_right_inner_finger
-```
-
-### bringup_camera.launch.py (카메라 포함)
-
-```
-world
-└── base_link
-    └── link1 → ... → tool0
-                       ├── rg2_base_link          (그리퍼, 위와 동일)
-                       └── bracket_link           (마운트 브라켓)
-                           └── camera_link
-                               ├── camera_color_frame / camera_color_optical_frame
-                               ├── camera_depth_frame / camera_depth_optical_frame
-                               ├── camera_infra1_frame / camera_infra1_optical_frame
-                               └── camera_infra2_frame / camera_infra2_optical_frame
-```
-
-- `world → base_link`: `static_transform_publisher` (identity)
-- `tool0 → rg2_base_link`: `joint0` (fixed)
-- `tool0 → bracket_link`: `tool0_to_bracket` (fixed)
-- `rg2_left/right_inner_knuckle`: mimic joint, `rg2_finger_joint` 기준 연동
-
----
-
-## 디렉토리 구조
-
-```
-
-└── src
-    ├── README.md
-    ├── collaborate1                     # 붓펜 드로잉 · 픽앤플레이스 통합 패키지
-    │   ├── config/registry.yaml         # 노드 엔트리포인트 및 경로 통합 관리
-    │   ├── collaborate1/core            # 공용 모듈 (cursive_font, run_logger, SVG)
-    │   ├── collaborate1/setup_tools     # 수동 조종 · 9점 캘리브레이션 · 티칭
-    │   ├── collaborate1/app             # 실제 실행 노드 (draw_multi_pen 등)
-    │   └── collaborate1/experiments     # 단위 테스트 및 과거 실험 코드
-    ├── doosan-robot2                    # 외부 패키지 — read-only
-    │   ├── LICENSE
-    │   ├── README.md
-    │   ├── dsr_bringup2
-    │   ├── dsr_common2
-    │   ├── dsr_controller2
-    │   ├── dsr_description2
-    │   ├── dsr_example2
-    │   ├── dsr_gazebo2
-    │   ├── dsr_hardware2
-    │   ├── dsr_moveit2
-    │   ├── dsr_msgs2
-    │   ├── dsr_mujoco
-    │   ├── dsr_tests
-    │   ├── install_emulator.sh
-    │   ├── test.sh
-    │   └── uninstall_emulator.sh
-    ├── onrobot-ros2                   # 외부 패키지 — read-only
-    │   ├── LICENSE
-    │   ├── README.md
-    │   ├── _onrobot_rg_modbus_tcp
-    │   ├── onrobot_rg_control
-    │   ├── onrobot_rg_description
-    │   └── onrobot_rg_msgs
-    ├── rg2
-    │   ├── m0609_rg2_bringup          # 커스텀 브링업 패키지
-    │   └── m0609_rg2_moveit
-    ├── rokey
-    └── rokey1
-```
-
----
-
-## 코드 연혁
-
-- **2026-11-12 — 기반 워크스페이스 및 기초 테스트 구성**
-  - `ahnisinc/cobot_rg2` (`doosan-robot2`, `onrobot-ros2`, `rg2`, `rokey`) 기반 M0609 + RG2 ROS 2 Jazzy 워크스페이스 구축
-  - `rokey` / `rokey1` / `collaborate1`: 기본 로봇 이동(`move.py`, `simple_input.py`, `moveit_py_demo.py`), 기어 작업(`gear.py`), 그리퍼 테스트(`grip_text.py`), SVG 샘플(`sample_drawing.svg`) 추가
-- **2026-11-14 — 드로잉 제어 방식 구현 및 실험**
-  - `doosan-robot2/test/drawingtest1.py`: `movej` / `movel` 기반 초기 단순 이동 테스트
-  - `collaborate1` (현 `experiments/drawingtest_force.py`): 순응 제어(`task_compliance_ctrl`) + 힘 제어(`set_desired_force`) 기반 최소 하강 힘 자동 캘리브레이션, 이동 중 외력 기준(`moving_baseline`) 접촉 감지, J6 방향 정렬 및 코너 리프트 드로잉 구현
-  - `collaborate1` (현 `experiments/drawingtest_slow.py`): 붓펜 보호를 위해 힘 제어를 제거하고 `0.2 mm` 단위 단계 하강 후 정지 상태 외력(`Fz`) 샘플링으로 접촉/과압을 판정하는 저속 안전 접촉 탐색 방식 도입
-- **2026-11-16 (오전) — GitHub 공유 및 `pentest` 통합**
-  - `drawingtest1.py` → `drawingtest_force.py`, `drawingtest_ryu.py` → `drawingtest_slow.py`로 정리
-  - `qownsdud/A4` 저장소 `ryu` 브랜치의 `pentest` 단위 테스트 코드들을 `collaborate1`로 통합하고 `setup.py` / `package.xml` 호환성 수정
-- **2026-11-16 (오후) — 기준 막대 높이 탐색, 필기체, 9점 캘리브레이션, 멀티펜 파이프라인 구축**
-  - `draw1.py` / `draw_routes.py`: 기준 막대 외력 접촉 후 `+2.0 mm`(굵은 선) / `+3.0 mm`(얇은 선) 상승 및 직선(`movel`)·곡선(`movesx`) 분리 그리기 구현
-  - `cursive_font.py` / `draw_cursive.py`: 대·소문자 52자 단선 필기체 및 진행 방향(`dy`) 기반 Z 두께(`2.0 ~ 3.0 mm`) 연속 변화 구현
-  - `manual_move.py` / `calibrate_plane.py`: PC 키보드 조그·그리퍼 조작·외력(`Fz`) 표시 및 9점 바닥 평면 기울기 보정(`~/.ros/plane_calibration.json`) 구현
-  - `teach_stick_slot.py` / `teach_pen_slots.py` / `pen_pick_place.py`: 기준 막대 및 펜 3개 위치 티칭(`+100 mm` 상공 접근·집기·홈·원위치) 분리 구현
-  - `draw_multi_pen.py` / `run_logger.py`: `홈 → 기준 막대 높이 측정·반납 → 펜 1(사각형)·2(삼각형)·3(원) 순차 그리기 → 홈` 1~14단계 통합 실행 및 터미널 실행 기록(`run_logs/<시작>_<종료>.txt`) 자동 저장 적용
-- **2026-11-16 (저녁) — 패키지 구조 리팩토링 및 YAML 통합 관리**
-  - `collaborate1` 내부를 `core/`, `setup_tools/`, `app/`, `experiments/` 서브모듈로 분류
-  - `config/registry.yaml`로 모든 노드 엔트리포인트 및 데이터/로그 경로를 일원화하고 `setup.py`가 YAML을 읽어 자동 등록하도록 개편

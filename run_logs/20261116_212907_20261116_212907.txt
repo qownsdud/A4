@@ -1,0 +1,3 @@
+[RunLog] 시작 (draw_image_multi_pen): 2026-11-16 21:29:07
+[ERROR] [1794832147.817514765] [dsr01.draw_image_multi_pen]: draw_image_multi_pen 중단: 벡터 이미지 파일(/home/qownsdud/ws_cobot_pjt/ws_dsr/install/collaborate1/lib/python3.12/site-packages/collaborate1/test_image/test_image_strokes.json)이 없습니다.
+[RunLog] 종료 (draw_image_multi_pen): 2026-11-16 21:29:07

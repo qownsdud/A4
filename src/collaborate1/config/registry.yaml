@@ -62,7 +62,7 @@ nodes:
       entry: "collaborate1.experiments.drawingtest_slow:main"
       desc: "저속 단계적 위치 제어 기반 안전 접촉 탐색 테스트"
     grip_test:
-      entry: "collaborate1.experiments.grip_text:main"
+      entry: "collaborate1.experiments.grip_test:main"
       desc: "그리퍼 DO 1/2번 핀 개폐 테스트"
     force_test:
       entry: "collaborate1.experiments.force_test:main"

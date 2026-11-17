@@ -1,0 +1,58 @@
+[RunLog] 시작 (draw_image_multi_pen): 2026-11-17 12:46:46
+[INFO] [1794887206.650727274] [dsr01.draw_image_multi_pen]: [영역] X=[254.8~457.3], Y=[-141.3~156.7] | 분배=[56, 69, 89]획
+[INFO] [1794887206.827280995] [dsr01.draw_image_multi_pen]: [기준 막대] 집기 시작
+[INFO] [1794887207.330184576] [dsr01.draw_image_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
+[INFO] [1794887217.031071683] [dsr01.draw_image_multi_pen]: 그리퍼: 잡기 (DO1=1, DO2=0)
+[INFO] [1794887222.227365398] [dsr01.draw_image_multi_pen]: [기준 막대] 집기 완료
+[INFO] [1794887227.438600752] [dsr01.draw_image_multi_pen]: [높이 측정] Baseline Fz=-9.937 N, noise=0.557 N
+[INFO] [1794887230.411044042] [dsr01.draw_image_multi_pen]: 막대 하강 1.50/20.00 mm | deltaFz=+0.097 N
+[INFO] [1794887231.410507834] [dsr01.draw_image_multi_pen]: 막대 하강 2.00/20.00 mm | deltaFz=+0.200 N
+[INFO] [1794887232.410779211] [dsr01.draw_image_multi_pen]: 막대 하강 2.50/20.00 mm | deltaFz=+0.167 N
+[INFO] [1794887233.410774909] [dsr01.draw_image_multi_pen]: 막대 하강 3.00/20.00 mm | deltaFz=+0.159 N
+[INFO] [1794887234.410548728] [dsr01.draw_image_multi_pen]: 막대 하강 3.50/20.00 mm | deltaFz=+0.088 N
+[INFO] [1794887235.410150361] [dsr01.draw_image_multi_pen]: 막대 하강 4.00/20.00 mm | deltaFz=+0.075 N
+[INFO] [1794887236.410071946] [dsr01.draw_image_multi_pen]: 막대 하강 4.50/20.00 mm | deltaFz=+9.289 N
+[INFO] [1794887237.410349181] [dsr01.draw_image_multi_pen]: 막대 하강 5.00/20.00 mm | deltaFz=+16.188 N
+[INFO] [1794887237.412862592] [dsr01.draw_image_multi_pen]: [높이 측정 완료] 바닥 Z=317.66 mm
+[INFO] [1794887239.827715534] [dsr01.draw_image_multi_pen]: [기준 막대] 원위치 시작
+[INFO] [1794887249.530789267] [dsr01.draw_image_multi_pen]: 그리퍼: 놓기 (DO1=0, DO2=1)
+[INFO] [1794887254.728383670] [dsr01.draw_image_multi_pen]: [기준 막대] 원위치 완료
+[INFO] [1794887254.728872131] [dsr01.draw_image_multi_pen]: [펜 1] 집기 시작
+[INFO] [1794887255.232547335] [dsr01.draw_image_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
+[INFO] [1794887263.131548012] [dsr01.draw_image_multi_pen]: 그리퍼: 잡기 (DO1=1, DO2=0)
+[INFO] [1794887268.328509939] [dsr01.draw_image_multi_pen]: [펜 1] 집기 완료
+[INFO] [1794887268.328778600] [dsr01.draw_image_multi_pen]: [펜 1] 그리기 시작: 56개 획, 395개 점
+[INFO] [1794887436.237220556] [dsr01.draw_image_multi_pen]: [펜 1] 진행 20/56 획
+[INFO] [1794887538.944460651] [dsr01.draw_image_multi_pen]: [펜 1] 진행 40/56 획
+[INFO] [1794887648.327397775] [dsr01.draw_image_multi_pen]: [펜 1] 진행 56/56 획
+[INFO] [1794887649.226644011] [dsr01.draw_image_multi_pen]: [펜 1] 원위치 시작
+[INFO] [1794887658.626494645] [dsr01.draw_image_multi_pen]: 그리퍼: 놓기 (DO1=0, DO2=1)
+[INFO] [1794887663.821678708] [dsr01.draw_image_multi_pen]: [펜 1] 원위치 완료
+[INFO] [1794887663.822153708] [dsr01.draw_image_multi_pen]: [펜 2] 집기 시작
+[INFO] [1794887664.325793553] [dsr01.draw_image_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
+[INFO] [1794887671.422344139] [dsr01.draw_image_multi_pen]: 그리퍼: 잡기 (DO1=1, DO2=0)
+[INFO] [1794887676.617638202] [dsr01.draw_image_multi_pen]: [펜 2] 집기 완료
+[INFO] [1794887676.618141733] [dsr01.draw_image_multi_pen]: [펜 2] 그리기 시작: 69개 획, 393개 점
+[INFO] [1794887774.697724310] [dsr01.draw_image_multi_pen]: [펜 2] 진행 20/69 획
+[INFO] [1794887934.085148428] [dsr01.draw_image_multi_pen]: [펜 2] 진행 40/69 획
+[INFO] [1794888036.483256260] [dsr01.draw_image_multi_pen]: [펜 2] 진행 60/69 획
+[INFO] [1794888076.782908614] [dsr01.draw_image_multi_pen]: [펜 2] 진행 69/69 획
+[INFO] [1794888077.682455620] [dsr01.draw_image_multi_pen]: [펜 2] 원위치 시작
+[INFO] [1794888087.584271939] [dsr01.draw_image_multi_pen]: 그리퍼: 놓기 (DO1=0, DO2=1)
+[INFO] [1794888092.782524948] [dsr01.draw_image_multi_pen]: [펜 2] 원위치 완료
+[INFO] [1794888092.782894825] [dsr01.draw_image_multi_pen]: [펜 3] 집기 시작
+[INFO] [1794888093.286221926] [dsr01.draw_image_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
+[INFO] [1794888100.385436694] [dsr01.draw_image_multi_pen]: 그리퍼: 잡기 (DO1=1, DO2=0)
+[INFO] [1794888105.582518252] [dsr01.draw_image_multi_pen]: [펜 3] 집기 완료
+[INFO] [1794888105.582913477] [dsr01.draw_image_multi_pen]: [펜 3] 그리기 시작: 89개 획, 389개 점
+[INFO] [1794888199.187456774] [dsr01.draw_image_multi_pen]: [펜 3] 진행 20/89 획
+[INFO] [1794888326.793113776] [dsr01.draw_image_multi_pen]: [펜 3] 진행 40/89 획
+[INFO] [1794888414.296304577] [dsr01.draw_image_multi_pen]: [펜 3] 진행 60/89 획
+[INFO] [1794888484.398572783] [dsr01.draw_image_multi_pen]: [펜 3] 진행 80/89 획
+[INFO] [1794888535.799935893] [dsr01.draw_image_multi_pen]: [펜 3] 진행 89/89 획
+[INFO] [1794888536.699612968] [dsr01.draw_image_multi_pen]: [펜 3] 원위치 시작
+[INFO] [1794888547.802856924] [dsr01.draw_image_multi_pen]: 그리퍼: 놓기 (DO1=0, DO2=1)
+[INFO] [1794888552.999944773] [dsr01.draw_image_multi_pen]: [펜 3] 원위치 완료
+[INFO] [1794888555.901691998] [dsr01.draw_image_multi_pen]: 그리퍼: 기본 (DO1=0, DO2=0)
+[INFO] [1794888555.902237153] [dsr01.draw_image_multi_pen]: 3개 펜 이미지 분할 그리기 전체 완료!
+[RunLog] 종료 (draw_image_multi_pen): 2026-11-17 13:09:15
