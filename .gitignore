@@ -1,15 +1,9 @@
-# ROS2 / colcon build artifacts
-build/
-install/
-log/
-
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 .venv/
 venv/
-.pytest_cache/
 
 # Environment / Secrets
 .env
@@ -18,6 +12,30 @@ venv/
 *.pem
 *.key
 
-# IDE / OS
+# IDE
 .vscode/
+
+# OS
 .DS_Store
+
+# Excluded / Legacy
+X/
+
+# ROS 2 생성 파일
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# 테스트 실행 데이터 및 캐시
+data/*.db
+data/*.db-*
+data/*.db.lock
+.pytest_cache/
+
+# 신규 작업의 사진·선화·계획은 런타임 데이터입니다. 기존 추적 자료는 보존합니다.
+data/jobs/
+**/*.egg-info/
+ros2_ws/src/art_*/build/
+
+# 장비별 보정 프로필은 로컬 설정입니다.
+data/equipment/

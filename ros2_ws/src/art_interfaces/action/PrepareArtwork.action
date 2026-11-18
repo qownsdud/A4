@@ -1,0 +1,20 @@
+# 공유 ART_JOB_PLAN_ROOT 아래 작업별 입력만 허용합니다. 로봇 실행 권한은 없습니다.
+string job_id
+string stage                 # LINEART | PLAN
+string input_path
+string method                # cv | dl | mfl_ld
+string paper                 # a4 | a4_landscape_margin | postcard | square (계획은 A4)
+string detail                # high | medium | low
+int64 seed
+string text                  # 영문 캘리그라피; 비어 있으면 생략
+---
+bool success
+string job_id
+string lineart_path
+string plan_path
+string preview_path
+string error_code
+string message
+---
+string stage
+string message

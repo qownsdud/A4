@@ -1,70 +1,60 @@
-# `ws_dsr` — Doosan M0609 + RG2 라인아트 드로잉 ROS2 워크스페이스 (`bae` 브랜치)
+# A4 퍼즐 드로잉 로봇
 
-두산 협동로봇(M0609)과 OnRobot RG2 그리퍼를 기반으로, 키오스크 입력 → 라인아트 변환 → 벡터 경로 추출 → 로봇 드로잉 제어까지 수행하는 **ROS2 colcon 워크스페이스**입니다.
+사진·영문 문구 입력 후 경로를 자동 생성하고 사용자 **그리기** 클릭으로 시작합니다.
+관리자는 현재 작업을 자동 조회해 일시정지·재개·중단만 수행합니다.
+[참고 코드 통합 결과와 새 선화 환경](docs/REFERENCE_INTEGRATION_KR.md)을 확인하세요.
+[최신 HMI 직접 시험 안내](docs/HMI_MANUAL_TEST_KR.md)를 먼저 확인하세요.
 
----
+Ubuntu 24.04 + ROS2 Jazzy 기반 사진 선화·A4 경로 생성·작업 관리 시스템입니다.
+주요 구현은 `ros2_ws/src/`의 기능별 ROS2 패키지로 관리합니다.
 
-## 1. 폴더 구조 (정리 기준)
+- **art_kiosk**: 사용자 사진 입력·선화 확인·관리자 작업 제어
+- **art_kiosk_bridge**: HTTP ↔ ROS 서비스·액션 중계
+- **art_artwork_pipeline**: CV/DL/MediaPipe 혼합 선화·벡터 경로·A4 mm·퍼즐 색상·영문 필기체
+- **art_job_manager**: SQLite·상태 머신·체크포인트·중단과 복구
+- **art_drawing_controller**: 확정 계획 실행·펜 교체·실제 관측 기반 제어와 안전 거절
+- **art_bringup**: 전체 Launch와 참고 설정
+- **art_interfaces**: 메시지·서비스·액션 계약
 
-협업 시 혼동을 줄이기 위해 빌드 산출물(`build/`, `install/`, `log/`), 캐시(`__pycache__/`), 중첩 `.git`은 제외하고, 백업/유틸리티/소스를 목적별로 분리했습니다.
-
-```text
-.
-├── .gitignore                         # ROS2 빌드 산출물(build/install/log), 캐시, 민감 파일 제외
-├── README.md                          # 워크스페이스 구조, 정리 내역 및 빌드/실행 가이드
-│
-├── src/                               # ROS2 colcon 워크스페이스 소스 패키지
-│   ├── README.md                      # M0609 + RG2 상세 환경 설정 및 패키지 히스토리
-│   ├── art/                           # 통합 아트 드로잉 ROS2 패키지 (kiosk, lineart, path_planner, drawing_controller, job_manager)
-│   ├── collaborate1/                  # 드로잉 앱·실험·캘리브레이션·필압 테스트 패키지
-│   ├── doosan-robot2/                 # 두산 협동로봇 ROS2 드라이버 및 URDF/MoveIt2 패키지
-│   ├── onrobot-ros2/                  # OnRobot 그리퍼 ROS2 드라이버
-│   ├── rg2/                           # RG2 그리퍼 제어/시뮬레이션 패키지
-│   ├── rokey/                         # 초기 로봇 이동 및 MoveIt Python 데모 패키지
-│   └── rokey1/                        # 초기 기어 작업/이동 테스트 패키지
-│
-├── archive/                           # 초기 백업 및 단독 실험 스크립트 (ROS2 빌드 대상에서 분리)
-│   ├── collaborate1_backup/           # (구 src/collaborate1_codeback) 초기 실험 백업 스크립트
-│   └── doosan_test/
-│       └── drawingtest1.py            # (구 src/doosan-robot2/test/drawingtest1.py) 초기 이동 테스트
-│
-├── tools/                             # 워크스페이스 관리 유틸리티
-│   ├── file_manager.py                # files.yaml 기반 파일 트리 조회 및 일괄 이름/경로 관리 도구
-│   └── files.yaml                     # 워크스페이스 파일 트리 정의 매니페스트
-│
-├── drawing_previews/                  # 벡터 경로 변환 미리보기 이미지 (latest_preview.png 및 history/)
-├── run_logs/                          # 실행 로그 텍스트 파일
-└── calibration_backup/                # ~/.ros/ 캘리브레이션 및 슬롯 티칭 JSON 백업
-    ├── draw_height_test_state.json
-    ├── pen_slots.json
-    ├── plane_calibration.json
-    └── stick_slot.json
-```
-
----
-
-## 2. 주요 정리 및 파일명 정정 내역
-
-| 구분 | 변경 전 | 변경 후 | 사유 |
-| :--- | :--- | :--- | :--- |
-| 파일명 오타 수정 | `src/collaborate1/collaborate1/experiments/grip_text.py` | `src/collaborate1/collaborate1/experiments/grip_test.py` | 오타(`text` → `test`) 정정 및 `config/registry.yaml`, `src/README.md` 참조 동기화 |
-| 백업 폴더 분리 | `src/collaborate1_codeback/` | `archive/collaborate1_backup/` | 활성 ROS2 패키지(`src/collaborate1/`)와의 혼동 방지 |
-| 단독 테스트 분리 | `src/doosan-robot2/test/drawingtest1.py` | `archive/doosan_test/drawingtest1.py` | 외부 베이스 패키지(`doosan-robot2`) 내부의 임의 테스트 파일 분리 |
-| 유틸리티 정리 | `./file_manager.py`, `./files.yaml` | `tools/file_manager.py`, `tools/files.yaml` | 루트 디렉터리 가독성 개선 |
-| 중첩 Git 제거 | `src/.git/` | 제거 | 서브모듈(gitlink)로 묶여 파일이 누락되는 문제 방지 |
-
----
-
-## 3. 빌드 및 실행 방법 (ROS2 Jazzy)
-
-상세 의존성 설치 및 DRCF 에뮬레이터 설정은 [`src/README.md`](./src/README.md)를 참고하세요.
+## 빌드와 실행
 
 ```bash
-# 워크스페이스 루트에서 의존성 설치 및 빌드
-rosdep install -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
-colcon build
+cd ~/A4/ros2_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install
 source install/setup.bash
-
-# 통합 아트 드로잉 시스템 실행
-ros2 launch art art_system.launch.py
+export ART_JOB_PLAN_ROOT="$HOME/A4/data/jobs"
+export ART_LINEART_METHOD=cv
+ros2 launch art_bringup art_system.launch.py
 ```
+
+웹은 `http://127.0.0.1:8000`, 관리자 화면은 `/admin`입니다. 관리자 화면은 인증키 없이 열립니다. 기본 접속은 로컬 주소이며 교차 출처 요청은 거절합니다.
+경로 자동 생성 → 사용자 미리보기 확인 → 그리기 승인 → 작업 자동 등록 순서입니다.
+실물 M0609/RG2와 보정·펜 이격은 미검증이며 실물 검증 프로필을 설정하지 않은 Controller는 물리 실행 Goal을 거절합니다.
+제공 인물 사진의 혼합 모델 추론은 확인했습니다. 실물 드로잉과 한글 필기체는 검증·지원 완료로 간주하지 않습니다.
+
+## 테스트
+
+```bash
+cd ~/A4
+source /opt/ros/jazzy/setup.bash
+source ~/ws_cobot_pjt/ws_dsr/install/setup.bash
+source ros2_ws/install/setup.bash
+source scripts/local_test_env.bash
+PYTHONPATH="/tmp/a4-hmi-js-check:$PYTHONPATH" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ROS_DOMAIN_ID=99 \
+  python3 -m pytest -c /dev/null --rootdir=. -o cache_dir=/tmp/a4-pytest-cache tests -q -rs
+```
+
+QuickJS가 없으면 프런트엔드 최소 DOM 시험은 건너뜁니다. 테스트 도메인에는 별도 실행 노드를 띄우지 않습니다.
+
+- [통합 결과·의존성·실행·안전 경계](docs/ROS2_PACKAGE_REFACTOR_KR.md)
+- [실제 파일 트리](docs/ROS2_REFACTOR_FILE_TREE.txt)
+- [키오스크](ros2_ws/src/art_kiosk/README.md)
+- [ArtworkPipeline](ros2_ws/src/art_artwork_pipeline/README.md)
+- [기존 참고 데이터](data/reference/README.md)
+
+구형 Phase 호환 진입점과 중복 설치 안내는 제거했습니다. 기존 데이터는 `data/reference/`로 이동했고 모든 회귀 시험은 `tests/` 아래에 있습니다.
+
+실물 로봇 담당자는 [실물 로봇 팀 인계 문서](docs/ROBOT_TEAM_HANDOFF_KR.md)에서 현재 구현 범위와 Action 계약을 확인하세요.
+
+[획 중간 일시정지·재개 구현과 팀원 연결 방법](docs/CONTINUOUS_PAUSE_RESUME_KR.md)을 확인하세요.

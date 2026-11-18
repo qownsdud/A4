@@ -1,0 +1,3 @@
+logical_pens: [PEN_1, PEN_2, PEN_3]
+gripper: RG2
+pen_up_sensor_validated: false

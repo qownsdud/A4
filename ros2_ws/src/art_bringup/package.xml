@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<package format="3"><name>art_bringup</name><version>0.3.0</version>
+<description>A4 시스템 실행과 안전 기본 설정</description>
+<maintainer email="maintainer@example.invalid">A4 Team</maintainer><license>UNLICENSED</license>
+<buildtool_depend>ament_cmake</buildtool_depend>
+<exec_depend>launch_ros</exec_depend><exec_depend>art_kiosk</exec_depend>
+<exec_depend>art_kiosk_bridge</exec_depend><exec_depend>art_artwork_pipeline</exec_depend>
+<exec_depend>art_job_manager</exec_depend><exec_depend>art_drawing_controller</exec_depend>
+<export><build_type>ament_cmake</build_type></export></package>

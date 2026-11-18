@@ -1,0 +1,10 @@
+# 실행 중인 동일 Action의 모션만 제어합니다. 새 경로/새 Goal을 만들지 않습니다.
+string job_id
+string execution_id        # ExecuteDrawing Goal UUID의 소문자 hex 문자열
+string command             # PAUSE | RESUME
+string request_id
+---
+bool accepted              # 실제 드라이버 확인까지 완료했을 때만 true
+string state               # PAUSED | DRAWING | UNKNOWN
+string error_code
+string message

@@ -1,0 +1,5 @@
+unit: mm
+width: 297.0
+height: 210.0
+coordinate_frame: paper_top_left_x_right_y_down
+calibration_validated: false

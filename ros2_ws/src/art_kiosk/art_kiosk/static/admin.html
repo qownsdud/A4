@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>A4 관리자 HMI</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="topbar"><div class="brand"><span class="brand-badge">관리자 HMI</span><h1>현재 드로잉 관리</h1></div><a href="/">사용자 화면</a></header>
+<main class="admin-layout"><section id="adminPanel" class="panel"><h2>현재 작업</h2><p class="hint">사용자 화면의 현재 작업을 자동 표시합니다. 인증키와 작업 ID 입력은 필요하지 않습니다.</p>
+<div class="admin-media"><figure><img id="adminPhoto" alt="현재 입력 사진" hidden><figcaption>입력 사진</figcaption></figure><figure><img id="adminPreview" alt="현재 그림과 문구 경로" hidden><figcaption>드로잉 경로</figcaption></figure></div>
+<p>문구: <strong id="adminText">없음</strong></p><p id="adminStatus" role="status" aria-live="polite">현재 작업을 확인합니다.</p><progress id="adminProgress" max="100" value="0" hidden aria-label="완료 획 진행률"></progress>
+<div id="controlButtons" class="toolbar"><button class="btn-secondary" data-command="PAUSE" type="button" disabled>일시정지</button><button class="btn-secondary" data-command="RESUME" type="button" disabled>재개</button><button class="btn-danger" data-command="CANCEL" type="button" disabled>작업중단</button></div>
+<p class="hint">요청 수락과 실제 정지는 다릅니다. PAUSED·STOPPED 상태를 확인하세요. 물리적 비상정지는 별도입니다.</p></section>
+<p id="adminNotice" class="notice" role="status" aria-live="polite">현재 작업을 자동으로 조회합니다.</p></main><script src="/static/admin.js"></script></body></html>

@@ -1,5 +1,0 @@
-[RunLog] 시작 (draw_multi_pen): 2026-11-16 19:02:36
-[INFO] [1794823356.756600557] [dsr01.draw_multi_pen]: [기울기 보정] 적용: a=+0.002184, b=-0.000099
-[INFO] [1794823356.881187365] [dsr01.draw_multi_pen]: [기준 막대] 집기 시작
-[INFO] [1794823357.385208202] [dsr01.draw_multi_pen]: 그리퍼: 놓기(열기) (DO1=0, DO2=1)
-[RunLog] 종료 (draw_multi_pen): 2026-11-16 19:02:39

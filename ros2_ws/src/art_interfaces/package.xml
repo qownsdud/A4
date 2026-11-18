@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- ROS 2 패키지 메타데이터: 빌드 도구·필수 의존성·패키지 정보 -->
+<package format="3">
+  <name>art_interfaces</name>
+  <version>0.1.0</version>
+  <description>TEAM_SYNC: draft ROS 2 contracts for the A4 drawing project; agree before production.</description>
+  <maintainer email="maintainer@example.invalid">A4 Team (replace before release)</maintainer>
+  <license>UNLICENSED</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

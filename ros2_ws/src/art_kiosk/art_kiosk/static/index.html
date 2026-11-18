@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A4 퍼즐 드로잉</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header class="topbar"><div class="brand"><span class="brand-badge">A4 DRAWING</span><div><h1>사진과 마음을 한 장에</h1><p class="subtitle">사진과 영문 문구를 입력하고 경로를 확인한 뒤 그리기를 눌러주세요.</p></div></div><span id="engineStatus" class="status-pill">엔진 확인 중</span></header>
+<main class="kiosk-grid">
+<section class="panel input-panel"><h2>1. 사진과 문구</h2>
+<div class="toolbar"><button id="btnStartCam" class="tool-btn" type="button">카메라 켜기</button><button id="btnMirror" class="tool-btn" type="button">좌우 반전 ON</button><label class="file-upload-btn">사진 첨부<input id="photoFileInput" type="file" accept="image/*" hidden></label></div>
+<div class="camera-stage"><video id="camVideo" autoplay playsinline muted hidden></video><img id="capturedPreview" alt="입력 사진" hidden><div id="camPlaceholder" class="cam-placeholder">카메라로 촬영하거나 사진을 첨부하세요.</div><div id="countdownOverlay" class="countdown-overlay" hidden>3</div><canvas id="captureCanvas" hidden></canvas></div>
+<div class="cam-actions"><button id="btnCaptureNow" class="btn-secondary" type="button" disabled>촬영</button><button id="btnCaptureTimer" class="btn-secondary" type="button" disabled>3초 후 촬영</button><button id="btnRetake" class="btn-ghost" type="button" hidden>사진 바꾸기</button></div>
+<div class="controls-box"><label for="calligraphyText">하단 영문 필기체 문구 (선택)</label><input id="calligraphyText" type="text" maxlength="24" placeholder="예: Hello 또는 My Love" autocomplete="off"><p class="hint">영문 대소문자와 공백을 지원합니다. 사진은 상단, 문구는 하단에 배치됩니다.</p>
+<label for="detailSelect">선화 디테일</label><select id="detailSelect"><option value="high">세밀하게</option><option value="medium" selected>표준</option><option value="low">단순하게</option></select><p class="hint">용지는 A4입니다. 디테일 설정은 DL 엔진에 적용됩니다.</p>
+<p id="prepareStatus" role="status" aria-live="polite">사진을 입력하면 경로를 자동으로 만듭니다.</p><button id="btnRetry" class="btn-secondary" type="button" hidden>현재 상태 다시 확인</button><div id="errorBanner" class="error-banner" role="alert" hidden></div></div></section>
+<section class="panel output-panel"><h2>2. 실제로 그릴 경로</h2><div class="result-stage path-stage"><p id="resultEmpty">사진·문구 입력이 끝나면 그림과 문구의 경로가 여기에 나타납니다.</p><img id="resultImage" alt="A4 그림과 하단 문구의 최종 경로" hidden></div>
+<p class="hint">A4 가로 297×210mm · 사방 20mm 여백 · 문구는 하단 별도 영역에 배치합니다.</p><div class="output-actions"><button id="btnDraw" class="btn-primary" type="button" disabled>그리기</button><button id="btnResetAll" class="btn-ghost" type="button">새 사진 입력</button></div><p class="hint">미리보기 생성만으로 시작되지 않습니다. 그리기를 누르면 현재 경로를 작업으로 등록합니다.</p>
+<section class="job-status" aria-labelledby="jobStatusTitle"><h2 id="jobStatusTitle">작업 진행률</h2><p id="jobStatusText" role="status" aria-live="polite">아직 시작한 작업이 없습니다.</p><progress id="jobProgress" max="100" value="0" hidden aria-label="완료 획 진행률"></progress></section></section>
+</main><script src="/static/app.js"></script></body></html>
