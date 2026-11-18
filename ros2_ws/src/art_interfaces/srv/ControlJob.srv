@@ -1,0 +1,16 @@
+# Bridge → 드로잉 실행기 : 기존 작업에 PAUSE / RESUME / STOP / CANCEL 명령 보내기
+# REPLACE는 이전 실행의 정지·펜 정리 후 새 그림을 허용합니다.
+# RECONCILE은 이전 API 호환용 정지 관측입니다.
+# accepted=true는 '명령 수락'임 '실제 로봇 정지' 아님
+# PAUSING → PAUSED는 Controller의 실제 안전 정지 확인 이후에만 진행
+# 요청 데이터
+string job_id       # 기존 작업의 ID
+string command      # PAUSE, RESUME(중단점), STOP, RESET(STOP 호환), CANCEL, REPLACE, RECONCILE
+string request_id   # 네트워크 재전송/중복 클릭 방지용 명령별 고유 ID
+---
+# 응답 데이터
+bool accepted       # 상태 머신이 명령 요청을 수락했는지
+string job_id       # 대상 작업 ID
+string state        # 명령 직후 상태 (PAUSING, STOPPING, QUEUED 등)
+string error_code   # INVALID_TRANSITION, REQUEST_ID_CONFLICT 등
+string message      # 요청 처리 설명
