@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 import threading
 import rclpy
 from rclpy.action import ActionClient
@@ -18,17 +20,51 @@ from .plan_validator import default_plan_root
 from .state_machine import CommandReply, JobStateMachine
 
 
+def _load_sqlite_classes():
+    """패키지 내장(.sqlite_store) 또는 독립 패키지(art_state_store)에서 SQLite 저장소를 로드합니다."""
+    try:
+        from .sqlite_store import RobotStateStore, SqliteDecisionSink
+        return RobotStateStore, SqliteDecisionSink
+    except ImportError:
+        pass
+    try:
+        from art_state_store import RobotStateStore, SqliteDecisionSink
+        return RobotStateStore, SqliteDecisionSink
+    except ImportError:
+        return None, None
+
+
 class JobManagerNode(Node):
     """KioskBridge 요청을 받아 상태 머신으로 결정하고 실행기·상태 토픽을 연결합니다."""
 
     def __init__(self, *, decision_sink: DecisionSink | None = None) -> None:
         super().__init__("job_manager_node")
         self._cb_group = ReentrantCallbackGroup()
-        sink = decision_sink or LoggingDecisionSink(self.get_logger())
-        self.machine = JobStateMachine(plan_root=default_plan_root(), decision_sink=sink)
+        self._store = None
+        plan_root = default_plan_root()
+
+        if decision_sink is not None:
+            sink = decision_sink
+        else:
+            RobotStateStore, SqliteDecisionSink = _load_sqlite_classes()
+            if RobotStateStore is not None and SqliteDecisionSink is not None:
+                db_path = Path(
+                    os.environ.get("ART_STATE_DB_PATH", str(plan_root.parent / "art_state.db"))
+                )
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+                self._store = RobotStateStore(db_path)
+                self._store.recover_after_restart()
+                sink = SqliteDecisionSink(self._store)
+                self.get_logger().info(f"SQLite 결정 저장소 연결 완료: {db_path}")
+            else:
+                sink = LoggingDecisionSink(self.get_logger())
+                self.get_logger().info("art_state_store 미설치로 LoggingDecisionSink를 사용합니다.")
+
+        self.machine = JobStateMachine(plan_root=plan_root, decision_sink=sink)
 
         self._lock = threading.RLock()
         self._goal_handles: dict[str, object] = {}
+        self._execution_ids: dict[str, str] = {}
 
         self._status_pub = self.create_publisher(JobStatus, "/art/job_status", 10)
         self._create_srv = self.create_service(
@@ -116,6 +152,7 @@ class JobManagerNode(Node):
 
         with self._lock:
             self._goal_handles[job_id] = goal_handle
+            self._execution_ids[job_id] = bytes(goal_handle.goal_id.uuid).hex()
         res_future = goal_handle.get_result_async()
         res_future.add_done_callback(lambda fut, jid=job_id: self._on_result(jid, fut))
 
@@ -134,6 +171,7 @@ class JobManagerNode(Node):
     def _on_result(self, job_id: str, future) -> None:
         with self._lock:
             self._goal_handles.pop(job_id, None)
+            self._execution_ids.pop(job_id, None)
         try:
             out = future.result()
             res = out.result
@@ -172,7 +210,11 @@ class JobManagerNode(Node):
             )
             self._publish_status(job_id)
             return
-        req = ControlDrawing.Request(job_id=job_id, command=cmd, request_id=request_id)
+        with self._lock:
+            execution_id = self._execution_ids.get(job_id, "")
+        req = ControlDrawing.Request(
+            job_id=job_id, execution_id=execution_id, command=cmd, request_id=request_id
+        )
         fut = self._ctrl_client.call_async(req)
         fut.add_done_callback(lambda f, jid=job_id, c=cmd: self._on_control_reply(jid, c, f))
 
@@ -200,6 +242,15 @@ class JobManagerNode(Node):
         except Exception as exc:
             self.machine.mark_failed(job_id, "CANCEL_ERROR", repr(exc))
             self._publish_status(job_id)
+
+
+    def destroy_node(self):
+        if getattr(self, "_store", None) is not None:
+            try:
+                self._store.close()
+            finally:
+                self._store = None
+        return super().destroy_node()
 
 
 def main(args=None) -> None:

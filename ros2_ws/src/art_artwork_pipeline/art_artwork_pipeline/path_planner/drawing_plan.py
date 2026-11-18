@@ -9,7 +9,7 @@ import argparse
 import json
 import math
 import os
-from ..puzzle.colors import balanced_cells
+from ..puzzle.colors import assign_stroke_pens, balanced_cells, split_long_stroke
 import re
 import tempfile
 import uuid
@@ -22,7 +22,8 @@ _ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 
 
 def build_plan(strokes, width_px, height_px, *, job_id=None, seed=42,
-               margin_mm=15.0, paper_size_mm=PAPER, pen_ids=PENS, artwork_box_mm=None):
+               margin_mm=15.0, paper_size_mm=PAPER, pen_ids=PENS, artwork_box_mm=None,
+               max_stroke_mm=None):
     if not isinstance(width_px, int) or not isinstance(height_px, int) or min(width_px, height_px) < 2:
         raise ValueError('width_px and height_px must be integers >= 2')
     if tuple(pen_ids) != PENS:
@@ -50,7 +51,8 @@ def build_plan(strokes, width_px, height_px, *, job_id=None, seed=42,
         ox = left + (width - (width_px - 1) * scale) / 2
         oy = top + (height - (height_px - 1) * scale) / 2
     cells = balanced_cells(seed, pen_ids)
-    paths = []
+    converted_strokes = []
+    connected_pairs = []
     for i, raw in enumerate(strokes):
         pts = raw.get('points', raw.get('points_px'))
         if not isinstance(pts, list) or len(pts) < 2:
@@ -63,11 +65,24 @@ def build_plan(strokes, width_px, height_px, *, job_id=None, seed=42,
             if not (math.isfinite(x) and math.isfinite(y) and 0 <= x < width_px and 0 <= y < height_px):
                 raise ValueError(f'out-of-image point in stroke {i}: {pt}')
             converted.append([round(ox + x * scale, 3), round(oy + y * scale, 3)])
+        parts = split_long_stroke(converted, max_length_mm=max_stroke_mm)
+        base_idx = len(converted_strokes)
+        for k in range(len(parts) - 1):
+            connected_pairs.append((base_idx + k, base_idx + k + 1))
+        converted_strokes.extend(parts)
+
+    assigned_pens = assign_stroke_pens(
+        converted_strokes, seed=seed, pen_ids=pen_ids, connected_pairs=connected_pairs
+    )
+    paths = []
+    for converted, pen_id in zip(converted_strokes, assigned_pens):
         x0, y0 = converted[0]
-        col = min(3, int(x0 / (pw / 4)))
-        row = min(3, int(y0 / (ph / 4)))
-        cell_id = row * 4 + col
-        paths.append({'grid_id': cell_id, 'pen_id': cells[cell_id],
+        candidates = [idx for idx, color in enumerate(cells) if color == pen_id]
+        cell_id = min(
+            candidates,
+            key=lambda idx: ((idx % 4 + 0.5) * pw / 4 - x0) ** 2 + ((idx // 4 + 0.5) * ph / 4 - y0) ** 2,
+        )
+        paths.append({'grid_id': cell_id, 'pen_id': pen_id,
                       'layer': 'artwork', 'points_mm': converted})
     # Keep pen groups contiguous and the execution sequence unambiguous.
     paths.sort(key=lambda p: pen_ids.index(p['pen_id']))

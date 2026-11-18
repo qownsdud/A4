@@ -308,14 +308,14 @@ def _order_strokes_tsp(strokes: list[list[tuple[float, float]]]) -> tuple[list[l
 
 def extract_vector_paths(
     image_path: str,
-    epsilon: float = 0.45,
-    min_length_px: float = 2.5,
+    epsilon: float = 1.5,
+    min_length_px: float = 8.0,
     min_points: int = 2,
     threshold: int | None = None,
     morph_clean: bool = False,
-    preserve_thick_contours: bool = True,
+    preserve_thick_contours: bool = False,
     bridge_gap_px: float = 4.5,
-    smooth_iterations: int = 2,
+    smooth_iterations: int = 0,
 ) -> ExtractionResult:
     """Extract ordered, smooth vector strokes preserving thin lines and thick feature contours."""
     t0 = time.perf_counter()

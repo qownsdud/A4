@@ -5,7 +5,7 @@ from .drawing_plan import validate_plan
 
 SVG_NS = 'http://www.w3.org/2000/svg'
 ET.register_namespace('', SVG_NS)
-PEN_COLORS = {'PEN_1': '#111111', 'PEN_2': '#e53935', 'PEN_3': '#1565c0'}
+PEN_COLORS = {'PEN_1': '#e53935', 'PEN_2': '#2e7d32', 'PEN_3': '#1565c0'}
 
 
 def export_svg(plan, output, stroke_width_mm=0.4):

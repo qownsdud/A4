@@ -73,7 +73,7 @@ BASELINE_SAMPLES = 10
 CONTACT_SIGN = +1
 
 # 9점 빈 그리퍼 자동 재캘리브레이션 파라미터
-AUTO_CALIBRATE_9PT = True        # True: 시작 시 닫힌 빈 그리퍼로 9점 Z를 새로 재서 기울기(a, b) 갱신
+AUTO_CALIBRATE_9PT = False        # True: 시작 시 닫힌 빈 그리퍼로 9점 Z를 새로 재서 기울기(a, b) 갱신
 CALIBRATE_INSET_MM = 40.0        # 무게추 회피를 위해 모서리/변 점을 중심 쪽으로 당길 거리 (mm)
 GRIPPER_PROBE_START_OFFSET_Z = 15.0  # 첫 점 탐색 시작 높이 오프셋 (+mm)
 GRIPPER_PROBE_MAX_TRAVEL_MM = 30.0   # 빈 그리퍼 최대 하강 탐색 거리 (mm)
