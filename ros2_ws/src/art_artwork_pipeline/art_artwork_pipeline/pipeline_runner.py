@@ -19,6 +19,48 @@ from .paper import layout, LANDSCAPE, fit_landscape_preview
 
 ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 
+# 슬라이더(0~100) 5단계 기준점: (level, canny_low, canny_high, face_canny_low, face_canny_high, face_bilateral_sigma, min_length_px)
+DENSITY_ANCHORS = (
+    (0.0,   85, 210, 42, 115, 75.0, 18.0),  # Minimal
+    (25.0,  65, 175, 34,  92, 60.0, 12.0),  # Clean
+    (50.0,  50, 150, 28,  75, 50.0,  8.0),  # Balanced
+    (75.0,  38, 115, 22,  60, 42.0,  6.0),  # Rich
+    (100.0, 28,  85, 15,  45, 35.0,  4.0),  # Very Rich
+)
+DETAIL_LEVELS = {'low': 25.0, 'medium': 50.0, 'high': 75.0}
+# 외부 0~100 입력을 실제 유효 구간인 20~80 범위로 선형 매핑합니다.
+DETAIL_EFFECTIVE_MIN = 20.0
+DETAIL_EFFECTIVE_MAX = 80.0
+
+
+def _parse_detail_level(detail) -> float:
+    level = DETAIL_LEVELS.get(str(detail).strip().lower()) if isinstance(detail, str) else None
+    if level is None and not isinstance(detail, bool):
+        try:
+            level = float(detail)
+        except (TypeError, ValueError):
+            level = -1.0
+    if level is None or not (0.0 <= level <= 100.0):
+        raise ValueError('지원하지 않는 디테일 값입니다. (high/medium/low 또는 0~100)')
+    return level
+
+
+def resolve_cv_density_params(detail, *, paper: str | None = None) -> tuple[LineartCVConfig, float]:
+    """슬라이더(0~100) 값을 유효 구간(20~80)에 매핑한 뒤 LineartCVConfig와 min_length_px를 선형 보간합니다."""
+    raw_level = _parse_detail_level(detail)
+    level = DETAIL_EFFECTIVE_MIN + (DETAIL_EFFECTIVE_MAX - DETAIL_EFFECTIVE_MIN) * (raw_level / 100.0)
+    lo, hi = next(
+        (a, b) for a, b in zip(DENSITY_ANCHORS, DENSITY_ANCHORS[1:]) if a[0] <= level <= b[0]
+    )
+    t = (level - lo[0]) / (hi[0] - lo[0])
+    lerp = lambda a, b: a + (b - a) * t
+    return LineartCVConfig(
+        mode='canny', max_side=512, binarize=True, paper=paper,
+        canny_low=round(lerp(lo[1], hi[1])), canny_high=round(lerp(lo[2], hi[2])),
+        face_canny_low=round(lerp(lo[3], hi[3])), face_canny_high=round(lerp(lo[4], hi[4])),
+        face_bilateral_sigma=round(lerp(lo[5], hi[5]), 2),
+    ), round(lerp(lo[6], hi[6]), 2)
+
 def a4_root():
     here = Path(__file__).resolve()
     for parent in here.parents:
@@ -80,8 +122,9 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
     directory = job_directory(job_id, root)
     if stage not in ('LINEART', 'PLAN') or method not in ('cv','dl','mfl_ld'):
         raise ValueError('지원하지 않는 처리 단계 또는 엔진입니다.')
-    if paper not in ('a4', LANDSCAPE, 'postcard', 'square') or detail not in ('high','medium','low'):
-        raise ValueError('지원하지 않는 용지 또는 디테일입니다.')
+    if paper not in ('a4', LANDSCAPE, 'postcard', 'square'):
+        raise ValueError('지원하지 않는 용지입니다.')
+    detail_level = _parse_detail_level(detail)
     expected = directory / ('photo.png' if stage == 'LINEART' else 'lineart.png')
     path = Path(input_path)
     if not path.is_absolute() or path.resolve(strict=True) != expected or expected.is_symlink():
@@ -99,12 +142,16 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
             with tempfile.TemporaryDirectory(dir=directory) as temporary:
                 output = Path(temporary) / 'lineart.png'
                 if method == 'cv':
-                    LineartConverterCV(LineartCVConfig(max_side=512, binarize=True, paper=None if paper==LANDSCAPE else paper)).convert_to_file(path, output)
+                    cv_cfg, _ = resolve_cv_density_params(
+                        detail_level,
+                        paper=None if paper == LANDSCAPE else paper,
+                    )
+                    LineartConverterCV(cv_cfg).convert_to_file(path, output)
                 else:
                     default_python=Path.home()/'.venvs/a4-lineart/bin/python'
                     executable = os.environ.get('ART_DL_PYTHON',str(default_python) if default_python.is_file() else sys.executable)
                     presets = {'high': (0,220,2), 'medium': (1,210,3), 'low': (2,200,5)}
-                    smooth, threshold, area = presets[detail]
+                    smooth, threshold, area = presets['high' if detail_level >= 66 else 'medium' if detail_level >= 33 else 'low']
                     try:
                         subprocess.run([executable, '-m', 'art_artwork_pipeline.lineart.cli', '--input',str(path),
                             '--method',method,'--resolution','512','--pre-smooth',str(smooth),
@@ -122,7 +169,9 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
                         fitted=fit_landscape_preview(image)
                     fitted.save(output)
                 _check_cancel(cancel)
-                atomic_json(directory / 'job_metadata.json',dict(job_id=job_id,stage='LINEART',confirmed=False,engine=method))
+                atomic_json(directory / 'job_metadata.json', dict(
+                    job_id=job_id, stage='LINEART', confirmed=False, engine=method, detail_level=detail_level,
+                ))
                 os.link(output, directory / 'lineart.png')
             return dict(job_id=job_id,lineart_path=str(directory/'lineart.png'),plan_path='',preview_path='')
         metadata = json.loads((directory / 'job_metadata.json').read_text())
@@ -131,11 +180,12 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
             raise ValueError('사용자가 확인하거나 미리보기 요청한 선화만 계획으로 변환할 수 있습니다.')
         if (directory / 'drawing_plan.json').exists():
             raise FileExistsError('이미 공개된 계획은 덮어쓰지 않습니다.')
-        # 샘플 기준(2. Balanced: len>=8.0, eps=1.5, gap=4.5)에 맞춰 불필요한 꼭짓점·잡선 제거
+        # 샘플 기준(Balanced: eps=1.5, gap=4.5)과 슬라이더(0~100) 기반 min_length_px 적용
+        _, min_length_px = resolve_cv_density_params(metadata.get('detail_level', detail_level))
         result = extract_vector_paths(
             str(path),
             epsilon=1.5,
-            min_length_px=8.0,
+            min_length_px=min_length_px,
             bridge_gap_px=4.5,
             preserve_thick_contours=False,
             smooth_iterations=0,
