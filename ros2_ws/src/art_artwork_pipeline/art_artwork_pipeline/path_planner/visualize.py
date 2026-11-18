@@ -94,3 +94,55 @@ def render_comparison_sheet(
     fig.savefig(str(out_path), bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+def render_balanced_preview(
+    result: ExtractionResult,
+    out_path: Path,
+    *,
+    min_length_px: float = 8.0,
+    epsilon: float = 1.5,
+) -> Path:
+    """Render single-panel Balanced vector preview with black strokes and vertex markers."""
+    fig, ax = plt.subplots(figsize=(6, 8.5), dpi=150)
+    ax.set_xlim(0, result.width)
+    ax.set_ylim(result.height, 0)
+    ax.set_aspect("equal")
+    ax.set_facecolor("white")
+
+    for stroke in result.strokes:
+        xs = [p[0] for p in stroke]
+        ys = [p[1] for p in stroke]
+        ax.plot(xs, ys, color="black", linewidth=1.2, zorder=2)
+        ax.scatter(xs, ys, color="#d95f02", s=2.5, zorder=3)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    fig.text(
+        0.02,
+        0.96,
+        f"2. Balanced (len>={min_length_px:g}, eps={epsilon:g})",
+        fontsize=12,
+        fontweight="bold",
+        color="black",
+        ha="left",
+        va="top",
+    )
+    fig.text(
+        0.02,
+        0.935,
+        f"strokes: {len(result.strokes)} | points: {result.simplified_point_count}",
+        fontsize=11,
+        fontweight="bold",
+        color="#d95f02",
+        ha="left",
+        va="top",
+    )
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(str(out_path), bbox_inches="tight", pad_inches=0.1, facecolor="white")
+    plt.close(fig)
+    return out_path

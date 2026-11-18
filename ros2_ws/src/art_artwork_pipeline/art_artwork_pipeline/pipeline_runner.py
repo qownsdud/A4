@@ -131,7 +131,15 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
             raise ValueError('사용자가 확인하거나 미리보기 요청한 선화만 계획으로 변환할 수 있습니다.')
         if (directory / 'drawing_plan.json').exists():
             raise FileExistsError('이미 공개된 계획은 덮어쓰지 않습니다.')
-        result = extract_vector_paths(str(path))
+        # 샘플 기준(2. Balanced: len>=8.0, eps=1.5, gap=4.5)에 맞춰 불필요한 꼭짓점·잡선 제거
+        result = extract_vector_paths(
+            str(path),
+            epsilon=1.5,
+            min_length_px=8.0,
+            bridge_gap_px=4.5,
+            preserve_thick_contours=False,
+            smooth_iterations=0,
+        )
         _check_cancel(cancel)
         feedback('VECTOR')
         payload = [{'points': [list(point) for point in stroke]} for stroke in result.strokes]
@@ -147,7 +155,8 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
             width,height=result.width,result.height
         plan = build_plan(payload, width, height, job_id=job_id, seed=seed,
                           paper_size_mm=placement['size'], margin_mm=placement['margin'],artwork_box_mm=box)
-        plan = optimize_plan(plan, backend='opencv', max_strokes=None, curve_step_mm=0)
+        # 앞단 픽셀 단순화(eps=1.5) 결과를 유지하기 위해 mm 재단순화는 비활성화
+        plan = optimize_plan(plan, backend='opencv', simplify_tolerance_mm=0.0, max_strokes=None, curve_step_mm=0)
         plan['strokes'].extend(generate_strokes(text, origin=placement['text_origin'], bounds_mm=placement['text_bounds'],paper_size_mm=placement['size']))
         for i, stroke in enumerate(plan['strokes']):
             stroke.update(stroke_id=i+1,execution_order=i)

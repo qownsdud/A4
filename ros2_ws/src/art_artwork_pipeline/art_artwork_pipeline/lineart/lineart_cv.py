@@ -13,6 +13,24 @@ from .utils import ImageInput, binarize_gray, load_pil_rgb, pad_to_paper_ratio
 CVSketchMode = Literal["dodge", "canny", "adaptive"]
 
 
+def _resolve_face_cascade_path(custom_path: str | None = None) -> Path | None:
+    """Locate a Haar cascade XML file for frontal face detection."""
+    candidates: list[Path] = []
+    if custom_path:
+        candidates.append(Path(custom_path))
+    cv_data = getattr(cv2, "data", None)
+    if cv_data is not None and hasattr(cv_data, "haarcascades"):
+        candidates.append(Path(cv_data.haarcascades) / "haarcascade_frontalface_default.xml")
+    candidates.extend([
+        Path("/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml"),
+        Path("/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml"),
+    ])
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
 @dataclass
 class LineartCVConfig:
     """Configuration for OpenCV-based lightweight sketch conversion."""
@@ -23,6 +41,13 @@ class LineartCVConfig:
     bilateral_sigma: float = 75.0
     canny_low: int = 50
     canny_high: int = 150
+    use_face_roi: bool = True
+    face_bilateral_d: int = 5
+    face_bilateral_sigma: float = 50.0
+    face_canny_low: int = 28
+    face_canny_high: int = 75
+    face_line_thickness: int = 2
+    face_cascade_path: str | None = None
     adaptive_block_size: int = 11
     adaptive_c: int = 4
     max_side: int | None = None
@@ -98,15 +123,61 @@ class LineartConverterCV:
         blurred = cv2.GaussianBlur(inverted, (k, k), 0)
         return cv2.divide(gray, 255 - blurred, scale=256.0)
 
+    def _detect_face_roi_mask(self, gray: np.ndarray) -> np.ndarray | None:
+        """Build a binary mask covering detected face, bangs, and chin regions."""
+        if not self.config.use_face_roi:
+            return None
+        cascade_path = _resolve_face_cascade_path(self.config.face_cascade_path)
+        if cascade_path is None:
+            return None
+        classifier = cv2.CascadeClassifier(str(cascade_path))
+        if classifier.empty():
+            return None
+        min_dim = max(24, min(gray.shape[:2]) // 10)
+        faces = classifier.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=(min_dim, min_dim)
+        )
+        if len(faces) == 0:
+            return None
+
+        mask = np.zeros(gray.shape[:2], dtype=np.uint8)
+        for x, y, fw, fh in faces:
+            # 앞머리(상단)와 턱선(하단)을 포함하되 좌우 배경 선반 침범은 최소화합니다.
+            cx = int(x + fw // 2)
+            cy = int(y + fh * 0.35)
+            rx = max(1, int(round(fw * 0.54)))
+            ry = max(1, int(round(fh * 0.80)))
+            cv2.ellipse(mask, (cx, cy), (rx, ry), 0, 0, 360, 255, -1)
+        return mask
+
     def _canny_sketch(self, gray: np.ndarray) -> np.ndarray:
         """Clean contour lines via bilateral filtering and Canny edge detection."""
-        smoothed = cv2.bilateralFilter(
+        bg_smoothed = cv2.bilateralFilter(
             gray,
             d=self.config.bilateral_d,
             sigmaColor=self.config.bilateral_sigma,
             sigmaSpace=self.config.bilateral_sigma,
         )
-        edges = cv2.Canny(smoothed, self.config.canny_low, self.config.canny_high)
+        edges = cv2.Canny(bg_smoothed, self.config.canny_low, self.config.canny_high)
+
+        face_mask = self._detect_face_roi_mask(gray)
+        if face_mask is not None:
+            face_smoothed = cv2.bilateralFilter(
+                gray,
+                d=self.config.face_bilateral_d,
+                sigmaColor=self.config.face_bilateral_sigma,
+                sigmaSpace=self.config.face_bilateral_sigma,
+            )
+            face_edges = cv2.Canny(
+                face_smoothed, self.config.face_canny_low, self.config.face_canny_high
+            )
+            if self.config.face_line_thickness > 1:
+                t = self.config.face_line_thickness
+                face_edges = cv2.dilate(
+                    face_edges, np.ones((t, t), dtype=np.uint8), iterations=1
+                )
+            edges = np.where(face_mask > 0, face_edges, edges)
+
         return 255 - edges
 
     def _adaptive_sketch(self, gray: np.ndarray) -> np.ndarray:
