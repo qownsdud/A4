@@ -69,9 +69,10 @@ def parse_args() -> argparse.Namespace:
         default="none",
         help="목표 용지 비율 패딩 적용 (기본: none)",
     )
+    from ..pipeline_runner import a4_root
     parser.add_argument(
         "--output-dir",
-        default=os.environ.get('ART_PREVIEW_ROOT', str(Path.home() / 'A4/data/previews')),
+        default=os.environ.get('ART_PREVIEW_ROOT', str(a4_root() / 'data/previews')),
         help="결과 이미지 저장 디렉토리 (기본: outputs)",
     )
     return parser.parse_args()

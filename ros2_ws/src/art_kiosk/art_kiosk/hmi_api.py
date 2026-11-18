@@ -202,7 +202,8 @@ async def create_prepared_job(body: CreateBody, request: Request):
     guard_legacy_registration()
     # 사진→계획 변환기를 가장하지 않고, 이미 만들어진 계획만 기존 Manager에 전달합니다.
     try:
-        root = Path(os.environ.get("ART_JOB_PLAN_ROOT", str(Path.home() / "A4/data/jobs"))).expanduser().resolve(strict=True)
+        default_root = next((p.parent for p in Path(__file__).resolve().parents if p.name == "ros2_ws"), Path.cwd()) / "data/jobs"
+        root = Path(os.environ.get("ART_JOB_PLAN_ROOT", str(default_root))).expanduser().resolve(strict=True)
         raw_path = Path(body.plan_path)
         if not raw_path.is_absolute():
             raise ValueError("절대 경로 필요")

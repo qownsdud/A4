@@ -40,7 +40,8 @@ def _archive_previous_outputs(out_dir: Path, keep_names: set[str]) -> int:
 
 
 def main() -> None:
-    plan_root = Path(os.environ.get('ART_JOB_PLAN_ROOT', str(Path.home() / 'A4/data/jobs'))).expanduser()
+    from ..pipeline_runner import job_root
+    plan_root = job_root()
     latest = plan_root / 'latest.json'
     default_input = None
     if latest.is_file():

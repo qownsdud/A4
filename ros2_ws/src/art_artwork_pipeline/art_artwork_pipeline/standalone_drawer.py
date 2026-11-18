@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -22,10 +23,7 @@ from art_interfaces.srv import ControlJob, CreateJob
 from .pipeline_runner import job_root
 from .plan import PlanError, load_plan
 
-DEFAULT_STANDALONE_SCRIPT = str(
-    Path.home()
-    / "ws_cobot_pjt/ws_dsr/src/collaborate1/collaborate1/app/draw_image_standalone.py"
-)
+DEFAULT_STANDALONE_SCRIPT = str(Path(__file__).resolve().with_name("draw_image_standalone.py"))
 DEFAULT_WS_DSR_SETUP = str(Path.home() / "ws_cobot_pjt/ws_dsr/install/setup.bash")
 PROGRESS_RE = re.compile(r"\[(펜\s*\d+)\]\s*진행\s*(\d+)/(\d+)\s*획")
 
@@ -220,7 +218,7 @@ class StandaloneDrawerNode(Node):
         if skip_cal:
             py_cmd.append("--skip-cal")
 
-        if ws_dsr_setup and Path(ws_dsr_setup).is_file():
+        if importlib.util.find_spec("DSR_ROBOT2") is None and ws_dsr_setup and Path(ws_dsr_setup).is_file():
             quoted = " ".join(shlex.quote(arg) for arg in py_cmd)
             return ["bash", "-c", f"source {shlex.quote(ws_dsr_setup)} && exec {quoted}"]
         return py_cmd

@@ -19,8 +19,16 @@ from .paper import layout, LANDSCAPE, fit_landscape_preview
 
 ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 
+def a4_root():
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if parent.name == 'ros2_ws':
+            return parent.parent
+    return Path.cwd()
+
+
 def job_root():
-    return Path(os.environ.get('ART_JOB_PLAN_ROOT', str(Path.home() / 'A4/data/jobs'))).expanduser().resolve()
+    return Path(os.environ.get('ART_JOB_PLAN_ROOT', str(a4_root() / 'data/jobs'))).expanduser().resolve()
 
 def job_directory(job_id, root=None):
     if not isinstance(job_id, str) or not ID.fullmatch(job_id):
