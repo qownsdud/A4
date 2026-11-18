@@ -39,3 +39,6 @@ ros2_ws/src/art_*/build/
 
 # 장비별 보정 프로필은 로컬 설정입니다.
 data/equipment/
+
+# 로컬 백업 폴더
+back/
