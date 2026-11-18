@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 from pathlib import Path
 import re
-import shlex
 import signal
 import subprocess
 import threading
@@ -24,7 +22,6 @@ from .pipeline_runner import job_root
 from .plan import PlanError, load_plan
 
 DEFAULT_STANDALONE_SCRIPT = str(Path(__file__).resolve().with_name("draw_image_standalone.py"))
-DEFAULT_WS_DSR_SETUP = str(Path.home() / "ws_cobot_pjt/ws_dsr/install/setup.bash")
 PROGRESS_RE = re.compile(r"\[(펜\s*\d+)\]\s*진행\s*(\d+)/(\d+)\s*획")
 
 
@@ -54,7 +51,6 @@ class StandaloneDrawerNode(Node):
     def __init__(self) -> None:
         super().__init__("standalone_drawer_node")
         self.declare_parameter("script_path", os.environ.get("ART_STANDALONE_SCRIPT", DEFAULT_STANDALONE_SCRIPT))
-        self.declare_parameter("ws_dsr_setup", os.environ.get("ART_WS_DSR_SETUP", DEFAULT_WS_DSR_SETUP))
         self.declare_parameter("virtual", _env_flag("ART_STANDALONE_VIRTUAL", False))
         self.declare_parameter("dry_run", _env_flag("ART_STANDALONE_DRY_RUN", False))
         self.declare_parameter("skip_cal", _env_flag("ART_STANDALONE_SKIP_CAL", False))
@@ -205,7 +201,6 @@ class StandaloneDrawerNode(Node):
 
     def _build_command(self, strokes_path: Path) -> list[str]:
         script_path = str(self.get_parameter("script_path").value)
-        ws_dsr_setup = str(self.get_parameter("ws_dsr_setup").value)
         virtual = bool(self.get_parameter("virtual").value)
         dry_run = bool(self.get_parameter("dry_run").value)
         skip_cal = bool(self.get_parameter("skip_cal").value)
@@ -218,9 +213,6 @@ class StandaloneDrawerNode(Node):
         if skip_cal:
             py_cmd.append("--skip-cal")
 
-        if importlib.util.find_spec("DSR_ROBOT2") is None and ws_dsr_setup and Path(ws_dsr_setup).is_file():
-            quoted = " ".join(shlex.quote(arg) for arg in py_cmd)
-            return ["bash", "-c", f"source {shlex.quote(ws_dsr_setup)} && exec {quoted}"]
         return py_cmd
 
     def _run_standalone(self, job_id: str, strokes_path: Path, total_strokes: int) -> None:
