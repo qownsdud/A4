@@ -1,4 +1,4 @@
-# 한글 캘리그라피 로봇 드로잉 (`app`)
+# 한글 캘리그라피 로봇 드로잉 (`src/calligraphy`)
 
 Doosan M0609 + RG2 그리퍼 환경에서 한글/영문/숫자 캘리그라피 폰트의 중심선과 획 굵기를 추출해, Z축 필압 조절로 붓글씨를 그리는 실험 코드입니다.
 
@@ -8,7 +8,7 @@ Doosan M0609 + RG2 그리퍼 환경에서 한글/영문/숫자 캘리그라피 �
 
 * **`calligraphy_path_gen.py`**: `.ttf` / `.otf` / `.ttc` 폰트에서 글자의 중심선(Skeleton)과 각 지점의 획 반지름(Distance Transform)을 추출해 로봇용 상대 좌표 `(x_mm, y_mm, dz_mm)` 경로로 변환하고 미리보기 이미지(`preview.png`)를 생성합니다.
 * **`draw_calligraphy.py`**: 실제 로봇을 구동해 아래 순서로 작업을 수행합니다.
-  1. 실행 즉시 미리보기 이미지(`run_logs/preview_<문구>_<YYYYMMDD_HHMMSS>.png`) 자동 저장 및 `xdg-open`으로 자동 열기
+  1. 실행 즉시 미리보기 이미지(`src/calligraphy/preview_<문구>_<YYYYMMDD_HHMMSS>.png`) 자동 저장 및 `xdg-open`으로 자동 열기
   2. 홈 위치 이동 (`HOME_JOINTS = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]`)
   3. 기준 막대(`~/.ros/stick_slot.json`) 픽업 → `Fz` 센서로 바닥 접촉 높이(`contact_z`) 탐색 → 기준 막대 반납
   4. 1번 펜(`~/.ros/pen_slots.json` 첫 번째 슬롯) 픽업
@@ -39,7 +39,7 @@ sudo apt update && sudo apt install -y \
 ### ① 경로 미리보기 이미지 확인 (로봇 미동작)
 `~/ws_cobot_pjt/ws_dsr`에서 실행:
 ```bash
-python3 src/collaborate1/collaborate1/app/calligraphy_path_gen.py \
+python3 src/calligraphy/calligraphy_path_gen.py \
   --text "한글" \
   --font /usr/share/fonts/truetype/nanum/NanumBrush.ttf \
   --preview preview.png
@@ -54,9 +54,9 @@ xdg-open preview.png
 `~/ws_cobot_pjt/ws_dsr`에서 실행:
 ```bash
 source install/setup.bash
-python3 src/collaborate1/collaborate1/app/draw_calligraphy.py --text "한글"
+python3 src/calligraphy/draw_calligraphy.py --text "한글"
 ```
-* 실행 시 `run_logs/preview_<문구>_<YYYYMMDD_HHMMSS>.png`가 자동 저장되고 이미지 뷰어가 함께 열립니다.
+* 실행 시 `src/calligraphy/preview_<문구>_<YYYYMMDD_HHMMSS>.png`가 자동 저장되고 이미지 뷰어가 함께 열립니다.
 
 ---
 
