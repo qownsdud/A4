@@ -153,13 +153,41 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='mfl_ld', pa
                     presets = {'high': (0,220,2), 'medium': (1,210,3), 'low': (2,200,5)}
                     smooth, threshold, area = presets['high' if detail_level >= 66 else 'medium' if detail_level >= 33 else 'low']
                     try:
-                        subprocess.run([executable, '-m', 'art_artwork_pipeline.lineart.cli', '--input',str(path),
-                            '--method',method,'--resolution','512','--pre-smooth',str(smooth),
-                            '--line-threshold',str(threshold),'--min-line-area',str(area),
-                            '--binarize','--paper','none' if paper==LANDSCAPE else paper,'--output-dir',temporary], check=True, timeout=120, capture_output=True)
+                        proc = subprocess.Popen(
+                            [
+                                executable, '-m', 'art_artwork_pipeline.lineart.cli',
+                                '--input', str(path), '--method', method, '--resolution', '512',
+                                '--pre-smooth', str(smooth), '--line-threshold', str(threshold),
+                                '--min-line-area', str(area), '--binarize',
+                                '--paper', 'none' if paper == LANDSCAPE else paper,
+                                '--output-dir', temporary,
+                            ],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                        deadline = os.times()  # monotonic check below
+                        import time as _time
+                        t_end = _time.monotonic() + 120.0
+                        while proc.poll() is None:
+                            if cancel():
+                                proc.terminate()
+                                try:
+                                    proc.wait(timeout=2.0)
+                                except subprocess.TimeoutExpired:
+                                    proc.kill()
+                                    proc.wait()
+                                raise InterruptedError('사용자가 이미지 처리를 취소했습니다.')
+                            if _time.monotonic() >= t_end:
+                                proc.kill()
+                                proc.wait()
+                                raise RuntimeError('선화 모델 실행 시간이 초과되었습니다.')
+                            _time.sleep(0.1)
+                        _, stderr_bytes = proc.communicate()
+                        if proc.returncode != 0:
+                            raise subprocess.CalledProcessError(proc.returncode, proc.args, stderr=stderr_bytes)
                     except subprocess.CalledProcessError as exc:
-                        detail=(exc.stderr or b'').decode('utf-8',errors='replace').splitlines()
-                        raise RuntimeError('선화 모델 실행 실패: '+(detail[-1] if detail else str(exc))) from exc
+                        detail = (exc.stderr or b'').decode('utf-8', errors='replace').splitlines()
+                        raise RuntimeError('선화 모델 실행 실패: ' + (detail[-1] if detail else str(exc))) from exc
                     produced = list(Path(temporary).glob('*.png'))
                     if len(produced) != 1:
                         raise RuntimeError('DL 선화 결과가 올바르지 않습니다.')

@@ -18,7 +18,9 @@ class PipelineNode(Node):
             callback_group=ReentrantCallbackGroup())
 
     def goal(self, request):
-        if request.stage not in ('LINEART','PLAN') or not self._busy.acquire(blocking=False):
+        if request.stage not in ('LINEART', 'PLAN'):
+            return GoalResponse.REJECT
+        if not self._busy.acquire(timeout=3.0):
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT
 

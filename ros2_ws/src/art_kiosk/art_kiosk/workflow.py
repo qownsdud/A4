@@ -3,7 +3,8 @@
 파일 잠금은 웹 요청의 경쟁을 막습니다. 실제 실행 상태와 복구 판단은
 JobManager가 소유하며, 응답 유실을 새 작업 등록으로 해결하지 않습니다.
 """
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
+import asyncio
 import fcntl
 import hashlib
 import json
@@ -458,6 +459,27 @@ def workflow_lock():
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
+@asynccontextmanager
+async def acquire_workflow_lock(wait_sec: float = 0.0):
+    """이전 준비 요청 취소 직후 즉시 재요청할 때 잠금 해제까지 짧게 대기합니다."""
+    path = job_root() / '.workflow.lock'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('a+') as stream:
+        deadline = time.monotonic() + max(0.0, float(wait_sec))
+        while True:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                if time.monotonic() >= deadline:
+                    raise HTTPException(409, '다른 요청을 처리 중입니다. 잠시 후 현재 상태를 확인하세요.') from exc
+                await asyncio.sleep(0.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(stream, fcntl.LOCK_UN)
+
+
 def check_origin(request):
     origin = request.headers.get('origin')
     if ((origin and origin != str(request.base_url).rstrip('/'))
@@ -494,7 +516,15 @@ async def allow_replace(request, data):
     elif data['phase'] in ('PREPARING', 'UNKNOWN_PREPARATION'):
         directory = job_directory(data['job_id'])
         if (directory / '.processing').exists():
-            raise HTTPException(409, '이미지 처리가 진행 중입니다. 잠시 후 다시 시도하세요.')
+            try:
+                await bridge_request(request, 'POST', '/bridge/artwork/cancel', timeout=3.0)
+            except Exception:
+                pass
+            deadline = time.monotonic() + 3.0
+            while (directory / '.processing').exists() and time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+            if (directory / '.processing').exists():
+                raise HTTPException(409, '이전 이미지 처리를 중단하는 중입니다. 잠시 후 다시 시도하세요.')
 
 
 async def guard_legacy_input(request):
@@ -531,6 +561,29 @@ def _validate_detail(detail: str) -> str:
     raise HTTPException(422, '디테일은 0~100 또는 high/medium/low여야 합니다.')
 
 
+def _lineart_bucket(detail: str) -> str:
+    val = str(detail).strip().lower()
+    if val in ('low', 'medium', 'high'):
+        return val
+    try:
+        num = float(val)
+    except ValueError:
+        return 'medium'
+    return 'high' if num >= 66 else 'medium' if num >= 33 else 'low'
+
+
+@router.post('/api/kiosk/prepare/cancel')
+async def cancel_prepare(request: Request):
+    check_origin(request)
+    previous = read_state()
+    if not previous or previous.get('phase') not in ('PREPARING', 'UNKNOWN_PREPARATION'):
+        return {'canceled': False}
+    try:
+        return await bridge_request(request, 'POST', '/bridge/artwork/cancel', timeout=3.0)
+    except HTTPException:
+        return {'canceled': False}
+
+
 @router.post('/api/kiosk/prepare')
 async def prepare(
     request: Request, photo: UploadFile = File(...), text: str = Form(''),
@@ -552,7 +605,14 @@ async def prepare(
     raw = await photo.read(20_000_001)
     photo_hash = hashlib.sha256(raw).hexdigest()
     fingerprint = hashlib.sha256(raw + b'\0' + text.encode() + b'\0' + detail.encode() + b'\0' + paper.encode() + b'\0' + method.encode()).hexdigest()
-    with workflow_lock():
+    # 이전 경로 추출이 진행 중이면 잠금을 얻기 전에 먼저 취소를 요청해 409 충돌을 예방합니다.
+    existing = read_state()
+    if existing and existing.get('phase') in ('PREPARING', 'UNKNOWN_PREPARATION'):
+        try:
+            await bridge_request(request, 'POST', '/bridge/artwork/cancel', timeout=2.0)
+        except Exception:
+            pass
+    async with acquire_workflow_lock(wait_sec=3.5):
         previous = read_state()
         if previous and previous.get('prepare_request_id') == request_id:
             if previous.get('input_sha256') != fingerprint:
@@ -566,9 +626,18 @@ async def prepare(
             directory = await run_in_threadpool(save_photo, job_id, raw)
         except (ValueError, OSError) as exc:
             raise HTTPException(400, '유효한 20 MB 이하 사진이 필요합니다.') from exc
-        can_reuse = (previous and previous['phase'] == 'PREVIEW'
+        prev_lineart_ready = False
+        if previous and previous.get('job_id'):
+            try:
+                prev_lineart = job_directory(previous['job_id']) / 'lineart.png'
+                prev_lineart_ready = prev_lineart.is_file() and not prev_lineart.is_symlink()
+            except ValueError:
+                prev_lineart_ready = False
+        can_reuse = (previous and previous['phase'] in ('PREVIEW', 'PREPARING', 'UNKNOWN_PREPARATION')
+                     and prev_lineart_ready
                      and previous.get('photo_sha256') == photo_hash
-                     and previous.get('detail') == detail and previous.get('paper', 'a4') == paper
+                     and _lineart_bucket(previous.get('detail', '')) == _lineart_bucket(detail)
+                     and previous.get('paper', 'a4') == paper
                      and previous.get('method') == method)
         timing_est = get_prepare_timing_estimate()
         now = time.time()

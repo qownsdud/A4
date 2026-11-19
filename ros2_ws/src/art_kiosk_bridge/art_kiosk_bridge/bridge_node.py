@@ -45,6 +45,7 @@ class KioskBridgeNode(Node):
         self._create_client = self.create_client(CreateJob, create_service)
         self._control_client = self.create_client(ControlJob, control_service)
         self._lock = threading.Lock()
+        self._active_artwork_handle = None
         self._statuses: dict[str, JobStatusReply] = {}
         self._status_subscription = self.create_subscription(
             JobStatus, status_topic, self._on_status, 10
@@ -162,17 +163,37 @@ class KioskBridgeNode(Node):
         handle = await wait(self._artwork.send_goal_async(goal),3.)
         if not handle.accepted:
             raise ServiceUnavailable('Pipeline이 사용 중이거나 요청을 거절했습니다.')
+        with self._lock:
+            self._active_artwork_handle = handle
         try:
             wrapped = await wait(handle.get_result_async(),140.)
         except ServiceTimeout:
             handle.cancel_goal_async()
             raise
+        finally:
+            with self._lock:
+                if self._active_artwork_handle is handle:
+                    self._active_artwork_handle = None
         result=wrapped.result
         if result.job_id != body.job_id:
             raise ContractMismatch('Pipeline 작업 ID가 일치하지 않습니다.')
         if not result.success:
             raise ArtworkFailed(result.error_code+': '+result.message)
         return {key:getattr(result,key) for key in ('job_id','lineart_path','plan_path','preview_path')}
+
+    async def cancel_artwork(self) -> dict[str, object]:
+        with self._lock:
+            handle = self._active_artwork_handle
+        if handle is None:
+            return {"canceled": False}
+        try:
+            future = handle.cancel_goal_async()
+            deadline = time.monotonic() + 2.0
+            while not future.done() and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            return {"canceled": True}
+        except Exception:
+            return {"canceled": False}
 
     def destroy_node(self):
         # ActionClient도 Node의 기본 정리 대상에 포함되지 않습니다.

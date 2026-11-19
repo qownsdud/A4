@@ -8,7 +8,7 @@
     blocked: false, lastPhase: 'IDLE', autoTimer: null, snapshot: null, expiry: null, resultUrl: null,
     photoUrl: null, countdown: null, forceSeen: false,
     prepareEstimate: {lineart_sec: 7.0, plan_sec: 3.5, total_sec: 10.5},
-    prepareStartedAt: 0, prepareTick: null, serverPrepare: null,
+    prepareStartedAt: 0, prepareTick: null, serverPrepare: null, prepareAbortController: null,
     previewEstSec: null, previewStrokes: null, etaAnchor: null, etaTick: null};
   function formatDuration(sec) {
     if (typeof sec !== 'number' || !Number.isFinite(sec) || sec < 0) return '--';
@@ -52,11 +52,10 @@
     $('prepareProgressWrap').hidden = false;
     $('prepareProgress').value = pctRound;
     $('preparePercent').textContent = `${pctRound}% · ${label}`;
-    $('prepareEta').textContent = `예상 대기 ${formatDuration(rem)}`;
-    $('prepareStatus').textContent = `${label} (${pctRound}%, ${formatDuration(rem)} 남음)`;
+    $('prepareStatus').textContent = `${label} (${pctRound}%)`;
     $('resultLoading').hidden = false;
     $('resultLoadingPercent').textContent = `${pctRound}%`;
-    $('resultLoadingText').textContent = `${label} · ${formatDuration(rem)} 남음`;
+    $('resultLoadingText').textContent = `${label}`;
   }
   function startPrepareUi() {
     state.prepareStartedAt = performance.now();
@@ -70,11 +69,10 @@
     state.prepareTick = null;
     state.serverPrepare = null;
     state.prepareStartedAt = 0;
-    if (completed) {
-      $('prepareProgress').value = 100;
-      $('preparePercent').textContent = '100% · 완료';
-      $('prepareEta').textContent = '완료';
-    }
+    $('prepareProgress').value = completed ? 100 : 0;
+    $('preparePercent').textContent = completed ? '100% · 완료' : '0%';
+    $('resultLoadingPercent').textContent = completed ? '100%' : '0%';
+    $('resultLoadingText').textContent = completed ? '완료' : '선화 변환 중…';
     $('prepareProgressWrap').hidden = true;
     $('resultLoading').hidden = true;
   }
@@ -135,6 +133,8 @@
   }
   function error(message) { $('errorBanner').textContent = message; $('errorBanner').hidden = !message; }
   function updateButtons() {
+    $('btnExtract').disabled = !state.photo || state.preparing || state.submitting || state.blocked;
+    $('btnExtract').textContent = state.preparing ? '경로 추출 중…' : '경로 추출';
     $('btnDraw').disabled = !state.ticket || state.readyRevision !== state.revision
       || state.preparing || state.submitting;
     for (const id of ['photoFileInput', 'calligraphyText', 'detailSelect', 'btnResetAll', 'btnStartCam', 'btnMirror', 'btnRetake']) {
@@ -165,6 +165,12 @@
   async function api(path, options = {}, timeoutMs = 7000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const extSignal = options.signal;
+    const onExtAbort = () => controller.abort();
+    if (extSignal) {
+      if (extSignal.aborted) controller.abort();
+      else extSignal.addEventListener('abort', onExtAbort, {once: true});
+    }
     try {
       const response = await fetch(path, {...options, cache: 'no-store', signal: controller.signal});
       const data = await response.json();
@@ -174,13 +180,29 @@
         throw exception;
       }
       return data;
-    } finally { clearTimeout(timer); }
+    } finally {
+      clearTimeout(timer);
+      if (extSignal) extSignal.removeEventListener('abort', onExtAbort);
+    }
+  }
+  function cancelInflightPrepare() {
+    if (state.prepareAbortController) {
+      state.prepareAbortController.abort();
+      state.prepareAbortController = null;
+    }
+    if (state.preparing) {
+      state.preparing = false;
+      state.pending = false;
+      stopPrepareUi(false);
+      fetch('/api/kiosk/prepare/cancel', {method: 'POST', cache: 'no-store'}).catch(() => {});
+    }
   }
   function invalidate() {
     state.revision += 1;
     state.readyRevision = -1;
     state.ticket = '';
     state.requestId = '';
+    cancelInflightPrepare();
     saveResume();
     clearTimeout(state.autoTimer);
     $('resultImage').hidden = true;
@@ -188,11 +210,7 @@
     error('');
     updateButtons();
     if (!state.photo) return;
-    $('prepareStatus').textContent = '입력이 끝나면 경로를 자동 생성합니다.';
-    state.autoTimer = setTimeout(() => {
-      if (state.preparing) { state.pending = true; return; }
-      preparePreview();
-    }, 600);
+    $('prepareStatus').textContent = "설정이 준비되었습니다. '경로 추출' 버튼을 눌러주세요.";
   }
   async function showPreview(ticket, revision) {
     const controller = new AbortController();
@@ -247,6 +265,8 @@
     state.previewStrokes = null;
     state.requestId = newId();
     state.inflightRequestId = state.requestId;
+    const ctrl = new AbortController();
+    state.prepareAbortController = ctrl;
     saveResume();
     updateButtons();
     startPrepareUi();
@@ -259,7 +279,7 @@
     form.append('method', 'mfl_ld');
     form.append('request_id', state.requestId);
     try {
-      const result = await api('/api/kiosk/prepare', {method: 'POST', body: form}, 310000);
+      const result = await api('/api/kiosk/prepare', {method: 'POST', body: form, signal: ctrl.signal}, 310000);
       if (revision !== state.revision) return;
       state.jobId = result.job_id;
       state.ticket = result.ticket;
@@ -270,21 +290,22 @@
       await showPreview(state.ticket, revision);
       $('btnRetry').hidden = true;
     } catch (exception) {
-      if (revision !== state.revision) return;
+      if (revision !== state.revision || ctrl.signal.aborted) return;
       stopPrepareUi(false);
       error(exception.name === 'AbortError' ? '처리 응답이 지연됩니다. 현재 상태를 다시 확인하세요.' : exception.message);
       $('btnRetry').hidden = false;
     } finally {
-      state.preparing = false;
-      if (state.prepareTick) stopPrepareUi(false);
-      updateButtons();
-      if ((state.pending || revision !== state.revision) && state.photo && !state.blocked) {
-        state.pending = false;
-        clearTimeout(state.autoTimer);
-        state.autoTimer = setTimeout(preparePreview, 0);
+      if (state.prepareAbortController === ctrl) {
+        state.prepareAbortController = null;
+        state.preparing = false;
+        if (state.prepareTick) stopPrepareUi(false);
+        updateButtons();
       }
     }
   }
+  $('btnExtract').addEventListener('click', () => {
+    if (!$('btnExtract').disabled) preparePreview();
+  });
   function setPhoto(blob) {
     state.photo = blob;
     if (state.photoUrl) URL.revokeObjectURL(state.photoUrl);
@@ -441,7 +462,8 @@
         'X-Prepare-Request': state.preparing ? state.inflightRequestId : state.requestId,
       }});
       state.lastPhase = data.phase;
-      if (data.phase === 'PREPARING' && data.prepare_progress) {
+      if (state.preparing && data.phase === 'PREPARING' && data.prepare_progress
+          && data.prepare_request_id === state.inflightRequestId) {
         state.serverPrepare = {...data.prepare_progress, atMs: performance.now()};
         renderPrepareProgress();
       } else if (!state.preparing && state.prepareTick) {

@@ -43,14 +43,48 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+open_app_window() {
+  local url="http://127.0.0.1:8000"
+  if command -v google-chrome >/dev/null 2>&1; then
+    google-chrome --app="$url" --user-data-dir="$CHROME_PROFILE" --class="A4DrawingStudio" --start-maximized
+  elif command -v chromium >/dev/null 2>&1; then
+    chromium --app="$url" --user-data-dir="$CHROME_PROFILE" --class="A4DrawingStudio" --start-maximized
+  elif command -v chromium-browser >/dev/null 2>&1; then
+    chromium-browser --app="$url" --user-data-dir="$CHROME_PROFILE" --class="A4DrawingStudio" --start-maximized
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url"
+    echo "Chrome/Chromium이 없어 기본 브라우저로 열었습니다. 종료하려면 Ctrl+C를 누르세요."
+    wait "$SYSTEM_PGID" 2>/dev/null || sleep infinity
+  else
+    show_error "실행할 브라우저(Google Chrome 또는 Chromium)를 찾을 수 없습니다."
+    exit 1
+  fi
+}
+
+# 실행 전 필수 환경 점검 (새 PC에서 setup_env.bash 미실행 시 안내)
+preflight_check() {
+  local missing=()
+  local dl_py="${ART_DL_PYTHON:-$HOME/.venvs/a4-lineart/bin/python}"
+  local face_model="${ART_FACE_MODEL_PATH:-$HOME/.cache/a4/models/face_landmarker.task}"
+  [[ -f /opt/ros/jazzy/setup.bash ]] || missing+=("- ROS 2 Jazzy (/opt/ros/jazzy/setup.bash)")
+  [[ -f "$A4_ROOT/ros2_ws/install/setup.bash" ]] || missing+=("- ROS 2 빌드 결과 ($A4_ROOT/ros2_ws/install)")
+  [[ -x "$dl_py" ]] || missing+=("- AI 선화 가상환경 ($dl_py)")
+  [[ -s "$face_model" ]] || missing+=("- MediaPipe 얼굴 모델 ($face_model)")
+  if (( ${#missing[@]} > 0 )); then
+    local joined
+    joined="$(printf '%s\n' "${missing[@]}")"
+    show_error "실행에 필요한 환경이 아직 설치되지 않았습니다:\n\n${joined}\n\n터미널에서 아래 명령어를 한 번 실행해 주세요:\n$A4_ROOT/scripts/setup_env.bash"
+    exit 1
+  fi
+}
+
 # 이미 8000 포트가 열려 있으면 새 앱 창만 바로 엽니다.
 if curl -fsS "http://127.0.0.1:8000/api/health" >/dev/null 2>&1; then
-  exec google-chrome \
-    --app="http://127.0.0.1:8000" \
-    --user-data-dir="$CHROME_PROFILE" \
-    --class="A4DrawingStudio" \
-    --start-maximized
+  open_app_window
+  exit 0
 fi
+
+preflight_check
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -62,6 +96,9 @@ set +u
 source /opt/ros/jazzy/setup.bash
 if [[ -f "$WS_DSR_ROOT/install/setup.bash" ]]; then
   source "$WS_DSR_ROOT/install/setup.bash"
+else
+  # 새 PC에 별도 ws_dsr이 없으면 저장소에 내장된 vendor 두산 드라이버를 사용합니다.
+  source "$A4_ROOT/ros2_ws/install/setup.bash"
 fi
 set -u
 
@@ -133,8 +170,4 @@ if [[ "$kiosk_ready" != "true" ]]; then
 fi
 
 # 3. 전용 앱 창 실행 (창을 닫으면 trap cleanup이 서버와 로봇을 자동 종료)
-google-chrome \
-  --app="http://127.0.0.1:8000" \
-  --user-data-dir="$CHROME_PROFILE" \
-  --class="A4DrawingStudio" \
-  --start-maximized
+open_app_window
