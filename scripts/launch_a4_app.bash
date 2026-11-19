@@ -40,6 +40,14 @@ cleanup() {
       kill -TERM -- "-$pgid" 2>/dev/null || true
     fi
   done
+  sleep 0.5
+  for pgid in "$SYSTEM_PGID" "$SODREAL_PGID"; do
+    if [[ -n "$pgid" ]]; then
+      kill -KILL -- "-$pgid" 2>/dev/null || true
+    fi
+  done
+  flock -u 9 2>/dev/null || true
+  exec 9>&- 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -110,9 +118,10 @@ export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
 # 진행률 안내창 시작
 if command -v zenity >/dev/null 2>&1; then
   (
+    exec 9>&-
     echo "# 1/3 두산 로봇(sodreal) 연결 중..."
     while sleep 0.5; do echo "#"; done
-  ) | zenity --progress --title="A4 Drawing Studio" --text="1/3 두산 로봇(sodreal) 연결 중..." --pulsate --no-cancel --auto-close --width=360 2>/dev/null &
+  ) | zenity --progress --title="A4 Drawing Studio" --text="1/3 두산 로봇(sodreal) 연결 중..." --pulsate --no-cancel --auto-close --width=360 2>/dev/null 9>&- &
   PROGRESS_PID=$!
 fi
 
@@ -120,7 +129,7 @@ fi
 if ! pgrep -f "m0609_rg2_bringup.*bringup\.launch\.py" >/dev/null 2>&1; then
   setsid ros2 launch m0609_rg2_bringup bringup.launch.py \
     mode:=real host:=192.168.1.100 port:=12345 model:=m0609 \
-    >"$SODREAL_LOG" 2>&1 < /dev/null &
+    >"$SODREAL_LOG" 2>&1 < /dev/null 9>&- &
   SODREAL_PGID=$!
 fi
 
@@ -147,7 +156,7 @@ set +u
 source "$A4_ROOT/ros2_ws/install/setup.bash"
 set -u
 setsid ros2 launch art_bringup art_system.launch.py \
-  >"$SYSTEM_LOG" 2>&1 < /dev/null &
+  >"$SYSTEM_LOG" 2>&1 < /dev/null 9>&- &
 SYSTEM_PGID=$!
 
 kiosk_ready=false
@@ -170,4 +179,4 @@ if [[ "$kiosk_ready" != "true" ]]; then
 fi
 
 # 3. 전용 앱 창 실행 (창을 닫으면 trap cleanup이 서버와 로봇을 자동 종료)
-open_app_window
+open_app_window 9>&-
