@@ -10,7 +10,7 @@ import time
 import cv2
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, Response, RedirectResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 import numpy as np
 from PIL import Image
@@ -41,7 +41,7 @@ app.include_router(workflow_router)
 @app.middleware("http")
 async def private_responses(request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/", "/admin")):
+    if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
@@ -51,11 +51,6 @@ async def private_responses(request, call_next):
         "connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
     )
     return response
-
-
-@app.get("/admin")
-def serve_admin_ui():
-    return RedirectResponse('/',status_code=307)
 
 
 def _compute_black_ratio(png_bytes: bytes) -> float:
@@ -99,8 +94,14 @@ def serve_kiosk_ui() -> FileResponse:
 
 @app.get("/api/health")
 def api_health():
-    return {"status": "ok", "engine": os.environ.get("ART_LINEART_METHOD", "mfl_ld"),
-            "dl_ready": False, "notice": "모델 추론과 ROS 연결은 별도 확인이 필요합니다."}
+    from .workflow import get_prepare_timing_estimate
+    return {
+        "status": "ok",
+        "engine": "mfl_ld",
+        "dl_ready": True,
+        "prepare_estimate": get_prepare_timing_estimate(),
+        "notice": "모델 추론과 ROS 연결은 별도 확인이 필요합니다.",
+    }
 
 
 async def request_pipeline(request, body):
@@ -121,7 +122,7 @@ async def kiosk_photo_to_lineart(request: Request, photo: UploadFile = File(...)
     except (ValueError, OSError) as exc:
         raise HTTPException(400, "유효한 20 MB 이하 이미지가 필요합니다.") from exc
     started = time.perf_counter()
-    method = os.environ.get("ART_LINEART_METHOD", "mfl_ld")
+    method = "mfl_ld"
     result = await request_pipeline(request, dict(job_id=job_id,stage="LINEART",
         input_path=str(directory/'photo.png'),method=method,paper=paper,detail=detail))
     expected = directory/'lineart.png'
@@ -195,5 +196,5 @@ async def prepare_plan(job_id: str, request: Request, options: PlanOptions = Pla
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
     return await request_pipeline(request,dict(job_id=job_id,stage='PLAN',
-        input_path=str(directory/'lineart.png'),method='cv',paper='a4',detail='medium',
+        input_path=str(directory/'lineart.png'),method='mfl_ld',paper='a4',detail='medium',
         text=options.text,seed=options.seed))

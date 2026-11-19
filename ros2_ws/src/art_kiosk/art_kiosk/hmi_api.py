@@ -20,11 +20,11 @@ if not 1 <= _BRIDGE_PORT <= 65535:
 BRIDGE_URL = f"http://127.0.0.1:{_BRIDGE_PORT}"
 ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
 STATES = Literal["QUEUED", "DISPATCHING", "DRAWING", "PAUSING", "PAUSED", "RESUMING",
-                 "STOPPING", "STOPPED", "COMPLETED", "RECOVERY_REQUIRED", "RESETTING", "FORCE_STOPPED"]
+                 "STOPPING", "STOPPED", "COMPLETED", "FORCE_STOPPED", "RECOVERY_REQUIRED"]
 
 
 class ControlBody(BaseModel):
-    command: Literal["PAUSE", "RESUME", "CANCEL", "RESET", "STOP"]
+    command: Literal["PAUSE", "RESUME", "CANCEL"]
     request_id: str = Field(min_length=1, max_length=64)
 
     @validator("request_id")
@@ -59,12 +59,6 @@ class StatusBody(BaseModel):
     current_pen: StrictStr
     error_code: StrictStr
     message: StrictStr
-    completed_length_mm: float = Field(default=0.,ge=0)
-    total_length_mm: float = Field(default=0.,ge=0)
-    external_force: bool = False
-    run_id: int = 0
-    control_request_id: str = ""
-    control_error: str = ""
     observed_at_unix: float
 
     @validator("observed_at_unix")
@@ -129,7 +123,7 @@ async def bridge_request(request: Request, method: str, path: str, *, body=None,
 async def manager_ready(request: Request) -> None:
     health = await bridge_request(request, "GET", "/health")
     if health.get("job_manager_reachable") is not True:
-        raise HTTPException(503, "로봇 실행기 연결 끊김: 캐시된 상태를 현재 상태로 확정할 수 없습니다.")
+        raise HTTPException(503, "JobManager 연결 끊김: 캐시된 상태를 현재 상태로 확정할 수 없습니다.")
 
 
 async def observed_status(request: Request, job_id: str):
@@ -138,16 +132,14 @@ async def observed_status(request: Request, job_id: str):
     data = await bridge_request(request, "GET", f"/bridge/jobs/{job_id}")
     try:
         status = StatusBody(**data)
-        if (status.job_id != job_id or status.completed_strokes > status.total_strokes
-                or not math.isfinite(status.total_length_mm) or not math.isfinite(status.completed_length_mm)
-                or status.completed_length_mm > status.total_length_mm + 1e-6):
+        if status.job_id != job_id or status.completed_strokes > status.total_strokes:
             raise ValueError("작업 ID 또는 완료 획 불일치")
     except (ValidationError, ValueError) as exc:
         raise HTTPException(502, "Bridge 상태 응답이 계약과 일치하지 않습니다.") from exc
     age = time.time() - status.observed_at_unix
     # 서버 설정이 잘못되어도 오래된 정보를 최신으로 표시하지 않습니다.
     try:
-        max_age = float(os.environ.get("ART_STATUS_MAX_AGE_SEC", "5"))
+        max_age = float(os.environ.get("ART_STATUS_MAX_AGE_SEC", "15"))
         if not math.isfinite(max_age) or max_age <= 0:
             raise ValueError("양수 필요")
     except ValueError as exc:
@@ -210,7 +202,8 @@ async def create_prepared_job(body: CreateBody, request: Request):
     guard_legacy_registration()
     # 사진→계획 변환기를 가장하지 않고, 이미 만들어진 계획만 기존 Manager에 전달합니다.
     try:
-        root = Path(os.environ.get("ART_JOB_PLAN_ROOT", str(Path.home() / "A4/data/jobs"))).expanduser().resolve(strict=True)
+        default_root = next((p.parent for p in Path(__file__).resolve().parents if p.name == "ros2_ws"), Path.cwd()) / "data/jobs"
+        root = Path(os.environ.get("ART_JOB_PLAN_ROOT", str(default_root))).expanduser().resolve(strict=True)
         raw_path = Path(body.plan_path)
         if not raw_path.is_absolute():
             raise ValueError("절대 경로 필요")

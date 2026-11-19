@@ -4,7 +4,7 @@
 기능 요약:
 1. 입력 이미지(PNG/JPG) -> 세선화(Zhang-Suen) + 경로 추출 -> 벡터 획(strokes) 생성
    (이미 변환된 *_strokes.json 입력도 그대로 지원)
-2. ~/.ros/plane_calibration.json의 9점 영역 내 안전 직사각형에 비율 유지 중앙 배치
+2. A4/config/plane_calibration.json의 9점 영역 내 안전 직사각형에 비율 유지 중앙 배치
 3. 전체 획을 3개 펜에 균등 분배
 4. 기준 막대로 바닥 높이(Z) 포스 접촉 측정 후, 펜 1·2·3이 순서대로 나눠 그림
 
@@ -15,7 +15,6 @@
 """
 
 import argparse
-from pathlib import Path
 from datetime import datetime
 import json
 import math
@@ -37,16 +36,21 @@ import numpy as np
 # =============================================================================
 ROBOT_ID = "dsr01"
 ROBOT_MODEL = "m0609"
-TOOL_NAME = os.environ.get("ART_TOOL_NAME", "Tool_Weight")
-TCP_NAME = os.environ.get("ART_TCP_NAME", "GripperDA_v1")
+TOOL_NAME = "Tool_Weight"
+TCP_NAME = "GripperDA_v1"
 
 # 속도 / 가속도
-J_VEL, J_ACC = 60, 60            # Joint 이동 (deg/s, deg/s^2)
-L_VEL, L_ACC = 80, 80            # 공중 이동 (mm/s, mm/s^2)
-PICK_VEL, PICK_ACC = 25, 25      # 픽앤플레이스 하강/상승 (mm/s, mm/s^2)
+J_VEL, J_ACC = 50, 50            # Joint 이동 (deg/s, deg/s^2)
+L_VEL, L_ACC = 150, 220          # 공중 이동 (mm/s, mm/s^2)
+PICK_VEL, PICK_ACC = 40, 80      # 픽앤플레이스 하강/상승 (mm/s, mm/s^2)
+PEN_DOWN_VEL, PEN_DOWN_ACC = 65, 180  # 종이 터치다운 하강 (mm/s, mm/s^2, 체류 최소화)
 PROBE_VEL, PROBE_ACC = 5, 5      # 기준 막대 바닥 탐색 (mm/s, mm/s^2)
-DRAW_VEL, DRAW_ACC = 25, 25      # 그리기 (mm/s, mm/s^2)
-CORNER_ANGLE_DEG = 35.0          # 이 각도(deg) 이상 꺾이는 점은 각진 모서리로 보고 movel로 정지
+DRAW_VEL, DRAW_ACC = 82.5, 200   # 그리기 (mm/s, mm/s^2, 기존 55mm/s 대비 1.5배 상향)
+SPLINE_VEL_SCALE = 0.85          # movesx 완만 곡선 최대 속도 비율 (movel 대비 여유)
+SPLINE_MAX_LAT_ACC = 320.0       # movesx 허용 구심 가속도 (mm/s^2)
+SPLINE_MIN_VEL, SPLINE_MIN_ACC = 35.0, 80.0  # 구불거리는 구간 최저 스플라인 속도/가속도
+CORNER_ANGLE_DEG = 55.0          # 이 각도(deg) 이상 꺾이는 점은 각진 모서리로 보고 movel로 정지
+CORNER_MIN_ARM_MM = 1.2          # 이 길이 미만 미세 계단 구간은 정지하지 않고 연속 통과
 MOVESX_MAX_POINTS = 80           # movesx 1회 호출당 최대 경유점 수
 
 # 홈 / 대기 및 접근 오프셋
@@ -74,13 +78,13 @@ BASELINE_SAMPLES = 10
 CONTACT_SIGN = +1
 
 # 9점 빈 그리퍼 자동 재캘리브레이션 파라미터
-AUTO_CALIBRATE_9PT = True        # True: 시작 시 닫힌 빈 그리퍼로 9점 Z를 새로 재서 기울기(a, b) 갱신
+AUTO_CALIBRATE_9PT = False        # True: 시작 시 닫힌 빈 그리퍼로 9점 Z를 새로 재서 기울기(a, b) 갱신
 CALIBRATE_INSET_MM = 40.0        # 무게추 회피를 위해 모서리/변 점을 중심 쪽으로 당길 거리 (mm)
 GRIPPER_PROBE_START_OFFSET_Z = 15.0  # 첫 점 탐색 시작 높이 오프셋 (+mm)
 GRIPPER_PROBE_MAX_TRAVEL_MM = 30.0   # 빈 그리퍼 최대 하강 탐색 거리 (mm)
 
-# 펜 1, 2, 3 그리기 높이 오프셋 및 안전 여백
-PEN_Z_OFFSETS = [13.5, 13.5, 13.5]
+# 펜 1, 2, 3, 4(글씨용 검정) 그리기 높이 오프셋 및 안전 여백
+PEN_Z_OFFSETS = [11.8, 12.3, 12.8, 12.5]
 RECT_MARGIN_MM = 20.0
 
 # 이미지 벡터화 파라미터 (image_vectorizer.py 방식 — 원본 선 형태 보존 우선)
@@ -103,9 +107,14 @@ def _a4_root() -> str:
     return os.getcwd()
 
 
-STICK_FILE = os.path.expanduser("~/.ros/stick_slot.json")
-PENS_FILE = os.path.expanduser("~/.ros/pen_slots.json")
-CALIBRATION_FILE = os.path.expanduser("~/.ros/plane_calibration.json")
+def _config_file(name: str) -> str:
+    config_dir = os.environ.get("ART_CONFIG_DIR", os.path.join(_a4_root(), "config"))
+    return os.path.join(config_dir, name)
+
+
+STICK_FILE = _config_file("stick_slot.json")
+PENS_FILE = _config_file("pen_slots.json")
+CALIBRATION_FILE = _config_file("plane_calibration.json")
 PREVIEW_DIR = os.environ.get("ART_DRAWING_PREVIEW_DIR", os.path.join(_a4_root(), "data", "drawing_previews"))
 DEFAULT_INPUT_PATH = os.path.join(_a4_root(), "data", "jobs", "latest_strokes.json")
 
@@ -402,6 +411,7 @@ def save_drawing_preview(
         (200, 70, 20),   # 펜 1 (파랑)
         (40, 40, 220),   # 펜 2 (빨강)
         (40, 155, 40),   # 펜 3 (초록)
+        (20, 20, 20),    # 펜 4 (검정 - 캘리그라피)
     ]
     for idx, strokes in enumerate(pen_groups):
         color = pen_colors[idx % len(pen_colors)]
@@ -531,7 +541,7 @@ def run_robot_drawing(
     slope_b: float,
     virtual: bool = False,
     auto_calibrate: bool = AUTO_CALIBRATE_9PT,
-    ordered_strokes=None, ui_job_id=None, control_settings=None, plan_path=None, plan_sha256=None, resume_checkpoint=None, cleanup_only=False,
+    pen_z_deltas: Optional[List[List[List[float]]]] = None,
 ) -> None:
     import rclpy
     import DR_init
@@ -555,43 +565,13 @@ def run_robot_drawing(
             set_digital_output,
             DR_MV_MOD_ABS,
             DR_MV_MOD_REL,
-            DR_MVS_VEL_CONST,
+            DR_MVS_VEL_NONE,
             DR_BASE,
         )
         from DR_common2 import posx, posj
     except ImportError as e:
         node.get_logger().error(f"Error importing DSR_ROBOT2: {e}")
         raise
-
-    live = None
-    cancel_types = (DrawingAborted,)
-    if ui_job_id:
-        from art_artwork_pipeline.live_control import (LiveControl,DsrMotionApi,length,ResumeDrawing,ForceStopped,WorkerExit,CancelDrawing)
-        import DSR_ROBOT2 as sdk
-        total = sum(length(record['points_robot']) for record in ordered_strokes)
-        live = LiveControl(ui_job_id,total,len(ordered_strokes),control_settings)
-        api = DsrMotionApi(node,sdk,virtual,robot_id=ROBOT_ID,tool_name=TOOL_NAME,tcp_name=TCP_NAME)
-        def safe_lift(current):
-            return max(current[2]+STROKE_LIFT_MM,max(float(p[2]) for p in pen_poses+[stick_pose])+APPROACH_OFFSET_Z)
-        live.bind(api,HOME_JOINTS,safe_lift)
-        if plan_path and plan_sha256:
-            from art_artwork_pipeline.recovery_store import RecoveryJournal
-            from art_artwork_pipeline.recovery_plan import resource_hashes,verify_checkpoint,verify_cleanup_context
-            live.attach_journal(RecoveryJournal(ui_job_id,plan_path,plan_sha256))
-            resources=resource_hashes([STICK_FILE,PENS_FILE,CALIBRATION_FILE])
-        live.runtime=dict(resource_hashes=resources if live.journal else {},tool_name=TOOL_NAME,tcp_name=TCP_NAME,
-                          phase='setup',held_pen_id=None,held_item=None)
-
-        cancel_types=(DrawingAborted,CancelDrawing)
-        def movej(target,vel=J_VEL,acc=J_ACC,**kwargs):
-            return live.motion(target,joint=True,vel=vel,acc=acc)
-        def movel(target,vel=L_VEL,acc=L_ACC,mod=0,**kwargs):
-            values=list(target)
-            if mod==DR_MV_MOD_REL:
-                if any(values[i] for i in (3,4,5)):raise ValueError('UI 제어는 상대 회전을 자동 변환하지 않습니다.')
-                current=api.pose();values=[current[i]+values[i] for i in range(6)]
-            return live.motion(values,vel=vel,acc=acc)
-        threading.Thread(target=live.read_commands,args=(sys.stdin,),daemon=True).start()
 
     abort_event = threading.Event()
     stop_listener_event = threading.Event()
@@ -602,7 +582,6 @@ def run_robot_drawing(
             raise DrawingAborted("사용자 중단 요청으로 안전 복귀를 시작합니다.")
 
     def _keyboard_abort_listener() -> None:
-        if live:return
         if not sys.stdin or not sys.stdin.isatty():
             return
         fd = sys.stdin.fileno()
@@ -643,9 +622,6 @@ def run_robot_drawing(
         movel(target, vel=PICK_VEL, acc=PICK_ACC, mod=DR_MV_MOD_ABS)
         set_gripper(ON, OFF, "잡기")
         held_item = (list(slot_pose), name)
-        if live:
-            live.runtime["held_pen_id"]=live.pen if name.startswith("펜") else None
-            live.runtime["held_item"]=dict(kind='pen' if name.startswith('펜') else 'stick',pose=list(slot_pose),name=name)
         movel(approach, vel=PICK_VEL, acc=PICK_ACC, mod=DR_MV_MOD_ABS)
 
     def return_to_slot(slot_pose: List[float], name: str) -> None:
@@ -658,9 +634,6 @@ def run_robot_drawing(
         movel(target, vel=PICK_VEL, acc=PICK_ACC, mod=DR_MV_MOD_ABS)
         set_gripper(OFF, ON, "놓기")
         held_item = None
-        if live:
-            live.runtime["held_pen_id"]=None
-            live.runtime["held_item"]=None
         movel(approach, vel=PICK_VEL, acc=PICK_ACC, mod=DR_MV_MOD_ABS)
 
     def read_fz_avg(samples: int = READ_SAMPLES) -> float:
@@ -766,28 +739,34 @@ def run_robot_drawing(
         movel([0.0, 0.0, APPROACH_OFFSET_Z, 0.0, 0.0, 0.0], vel=L_VEL, acc=L_ACC, mod=DR_MV_MOD_REL)
         return contact_pose
 
-    def draw_stroke_group(pen_name: str, strokes: List[List[Tuple[float, float]]], contact_pose: List[float], z_offset: float) -> None:
+    def draw_stroke_group(
+        pen_name: str,
+        strokes: List[List[Tuple[float, float]]],
+        contact_pose: List[float],
+        z_offset: float,
+        stroke_z_deltas: Optional[List[List[float]]] = None,
+    ) -> None:
         if not strokes:
             node.get_logger().info(f"[{pen_name}] 할당된 획 없음")
             return
         bx, by, contact_z, rx, ry, rz = contact_pose
 
-        def calc_z(ax: float, ay: float) -> float:
-            return contact_z + slope_a * (ax - bx) + slope_b * (ay - by) + z_offset
+        def calc_z(ax: float, ay: float, dz: float = 0.0) -> float:
+            return contact_z + slope_a * (ax - bx) + slope_b * (ay - by) + z_offset + dz
 
-        def split_at_corners(pts: List[Tuple[float, float]]) -> List[List[Tuple[float, float]]]:
+        def split_at_corners(pts: List[Tuple[float, float, float]]) -> List[List[Tuple[float, float, float]]]:
             """꺾이는 각도가 CORNER_ANGLE_DEG 이상인 꼭짓점에서 획을 분할한다."""
             if len(pts) < 3:
                 return [pts]
-            segments: List[List[Tuple[float, float]]] = []
-            cur_seg: List[Tuple[float, float]] = [pts[0], pts[1]]
+            segments: List[List[Tuple[float, float, float]]] = []
+            cur_seg: List[Tuple[float, float, float]] = [pts[0], pts[1]]
             for i in range(1, len(pts) - 1):
                 v1x, v1y = pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]
                 v2x, v2y = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
                 n1 = math.hypot(v1x, v1y)
                 n2 = math.hypot(v2x, v2y)
                 is_corner = False
-                if n1 > 1e-6 and n2 > 1e-6:
+                if n1 >= CORNER_MIN_ARM_MM and n2 >= CORNER_MIN_ARM_MM:
                     cos_val = max(-1.0, min(1.0, (v1x * v2x + v1y * v2y) / (n1 * n2)))
                     angle_deg = math.degrees(math.acos(cos_val))
                     if angle_deg >= CORNER_ANGLE_DEG:
@@ -800,55 +779,106 @@ def run_robot_drawing(
             segments.append(cur_seg)
             return segments
 
+        def calc_spline_vel_acc(
+            start_pt: Tuple[float, float, float],
+            chunk: List[Tuple[float, float, float]],
+        ) -> Tuple[float, float]:
+            """구불거리는 movesx 구간의 곡률과 S자 반전에 따라 속도·가속도를 감속한다."""
+            if len(chunk) <= 1:
+                return float(DRAW_VEL), float(DRAW_ACC)
+            pts = [start_pt] + chunk
+            total_len = 0.0
+            total_ang = 0.0
+            ks: List[float] = []
+            prev_sign = 0
+            reversals = 0
+            for i in range(1, len(pts)):
+                total_len += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+            for i in range(1, len(pts) - 1):
+                ax, ay = pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]
+                bx, by = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
+                cx, cy = pts[i + 1][0] - pts[i - 1][0], pts[i + 1][1] - pts[i - 1][1]
+                na, nb, nc = math.hypot(ax, ay), math.hypot(bx, by), math.hypot(cx, cy)
+                if na < 1e-6 or nb < 1e-6 or nc < 1e-6:
+                    continue
+                cross = ax * by - ay * bx
+                cos_v = max(-1.0, min(1.0, (ax * bx + ay * by) / (na * nb)))
+                ang = math.acos(cos_v)
+                total_ang += ang
+                if na + nb >= 2.0:
+                    ks.append((2.0 * abs(cross)) / (na * nb * nc))
+                if ang >= math.radians(15.0):
+                    sign = 1 if cross > 0 else -1
+                    if prev_sign != 0 and sign != prev_sign:
+                        reversals += 1
+                    prev_sign = sign
+            avg_k = total_ang / max(total_len, 1.0)
+            p80_k = sorted(ks)[int(0.80 * (len(ks) - 1))] if ks else avg_k
+            eff_k = max(avg_k, 0.75 * p80_k)
+            spline_cap = max(SPLINE_MIN_VEL, DRAW_VEL * SPLINE_VEL_SCALE)
+            vel = spline_cap if eff_k <= 1e-6 else min(spline_cap, math.sqrt(SPLINE_MAX_LAT_ACC / eff_k))
+            wiggle_rate = reversals / max(total_len / 15.0, 1.0)
+            if reversals >= 2 and wiggle_rate > 0.5:
+                vel *= max(0.70, 1.0 / (1.0 + 0.18 * wiggle_rate))
+            vel = max(SPLINE_MIN_VEL, min(spline_cap, vel))
+            ratio = vel / max(float(DRAW_VEL), 1e-6)
+            acc = max(SPLINE_MIN_ACC, min(DRAW_ACC * SPLINE_VEL_SCALE, DRAW_ACC * (ratio ** 1.35)))
+            return round(vel, 1), round(acc, 1)
+
+        pts3_list: List[List[Tuple[float, float, float]]] = []
+        for idx_s, pts in enumerate(strokes):
+            dzs = (
+                stroke_z_deltas[idx_s]
+                if stroke_z_deltas and idx_s < len(stroke_z_deltas) and len(stroke_z_deltas[idx_s]) == len(pts)
+                else [0.0] * len(pts)
+            )
+            pts3_list.append([(x, y, float(dz)) for (x, y), dz in zip(pts, dzs)])
+
         check_abort()
-        sx0, sy0 = strokes[0][0]
-        movel(posx([sx0, sy0, calc_z(sx0, sy0) + STROKE_LIFT_MM, rx, ry, rz]), vel=L_VEL, acc=L_ACC, mod=DR_MV_MOD_ABS)
+        sx0, sy0, sdz0 = pts3_list[0][0]
+        movel(posx([sx0, sy0, calc_z(sx0, sy0, sdz0) + STROKE_LIFT_MM, rx, ry, rz]), vel=L_VEL, acc=L_ACC, mod=DR_MV_MOD_ABS)
 
-        for s_idx, pts in enumerate(strokes, start=1):
+        for s_idx, pts3 in enumerate(pts3_list, start=1):
             check_abort()
-            sx, sy = pts[0]
-            sz = calc_z(sx, sy)
+            sx, sy, sdz = pts3[0]
+            sz = calc_z(sx, sy, sdz)
             movel(posx([sx, sy, sz + IMAGE_STROKE_LIFT_MM, rx, ry, rz]), vel=L_VEL, acc=L_ACC, mod=DR_MV_MOD_ABS)
-            movel(posx([sx, sy, sz, rx, ry, rz]), vel=PICK_VEL, acc=PICK_ACC, mod=DR_MV_MOD_ABS)
+            movel(posx([sx, sy, sz, rx, ry, rz]), vel=PEN_DOWN_VEL, acc=PEN_DOWN_ACC, mod=DR_MV_MOD_ABS)
 
-            if live:
-                for offset,((px,py),(x,y)) in enumerate(zip(pts,pts[1:]),start=point_offset+1):
-                    live.runtime["phase"]="drawing"
-                    live.draw_line([x,y,calc_z(x,y),rx,ry,rz],DRAW_VEL,DRAW_ACC,planned_start=[px,py,calc_z(px,py),rx,ry,rz],stroke_id=active_record["stroke_id"],point_index=offset)
-            else:
-                for seg in split_at_corners(pts):
-                    check_abort()
-                    if len(seg) <= 2:
-                        for x, y in seg[1:]:
-                            movel(posx([x, y, calc_z(x, y), rx, ry, rz]), vel=DRAW_VEL, acc=DRAW_ACC, mod=DR_MV_MOD_ABS)
-                    else:
-                        # 완만한 곡선 구간은 movesx로 연속 이동 (최대 MOVESX_MAX_POINTS 단위 분할)
-                        targets = seg[1:]
-                        for start in range(0, len(targets), MOVESX_MAX_POINTS):
-                            check_abort()
-                            chunk = targets[start : start + MOVESX_MAX_POINTS]
-                            if len(chunk) == 1:
-                                x, y = chunk[0]
-                                movel(posx([x, y, calc_z(x, y), rx, ry, rz]), vel=DRAW_VEL, acc=DRAW_ACC, mod=DR_MV_MOD_ABS)
-                            else:
-                                pos_list = [posx([x, y, calc_z(x, y), rx, ry, rz]) for x, y in chunk]
-                                movesx(
-                                    pos_list,
-                                    vel=DRAW_VEL,
-                                    acc=DRAW_ACC,
-                                    mod=DR_MV_MOD_ABS,
-                                    vel_opt=DR_MVS_VEL_CONST,
-                                )
-            ex, ey = pts[-1]
-            if live:live.runtime["phase"]="stroke_lift"
-            movel(posx([ex, ey, calc_z(ex, ey) + IMAGE_STROKE_LIFT_MM, rx, ry, rz]), vel=L_VEL, acc=L_ACC, mod=DR_MV_MOD_ABS)
-            if live:
-                live.completed+=1;live.emit(message='획 이동과 펜 상승을 확인했습니다.')
-            if s_idx % 20 == 0 or s_idx == len(strokes):
-                node.get_logger().info(f"[{pen_name}] 진행 {s_idx}/{len(strokes)} 획")
+            for seg in split_at_corners(pts3):
+                check_abort()
+                if len(seg) <= 2:
+                    for x, y, dz in seg[1:]:
+                        movel(posx([x, y, calc_z(x, y, dz), rx, ry, rz]), vel=DRAW_VEL, acc=DRAW_ACC, mod=DR_MV_MOD_ABS)
+                else:
+                    # 완만한 곡선 구간은 movesx로 연속 이동 (곡률 기반 속도·가속도 감속 + 가변 속도 모드)
+                    targets = seg[1:]
+                    prev_pt = seg[0]
+                    for start in range(0, len(targets), MOVESX_MAX_POINTS):
+                        check_abort()
+                        chunk = targets[start : start + MOVESX_MAX_POINTS]
+                        if len(chunk) == 1:
+                            x, y, dz = chunk[0]
+                            movel(posx([x, y, calc_z(x, y, dz), rx, ry, rz]), vel=DRAW_VEL, acc=DRAW_ACC, mod=DR_MV_MOD_ABS)
+                        else:
+                            s_vel, s_acc = calc_spline_vel_acc(prev_pt, chunk)
+                            pos_list = [posx([x, y, calc_z(x, y, dz), rx, ry, rz]) for x, y, dz in chunk]
+                            movesx(
+                                pos_list,
+                                vel=s_vel,
+                                acc=s_acc,
+                                mod=DR_MV_MOD_ABS,
+                                vel_opt=DR_MVS_VEL_NONE,
+                            )
+                        prev_pt = chunk[-1]
 
-        ex_last, ey_last = strokes[-1][-1]
-        movel(posx([ex_last, ey_last, calc_z(ex_last, ey_last) + STROKE_LIFT_MM, rx, ry, rz]), vel=L_VEL, acc=L_ACC, mod=DR_MV_MOD_ABS)
+            ex, ey, edz = pts3[-1]
+            movel(posx([ex, ey, calc_z(ex, ey, edz) + IMAGE_STROKE_LIFT_MM, rx, ry, rz]), vel=L_VEL, acc=L_ACC, mod=DR_MV_MOD_ABS)
+            if s_idx % 20 == 0 or s_idx == len(pts3_list):
+                node.get_logger().info(f"[{pen_name}] 진행 {s_idx}/{len(pts3_list)} 획")
+
+        ex_last, ey_last, edz_last = pts3_list[-1][-1]
+        movel(posx([ex_last, ey_last, calc_z(ex_last, ey_last, edz_last) + STROKE_LIFT_MM, rx, ry, rz]), vel=L_VEL, acc=L_ACC, mod=DR_MV_MOD_ABS)
 
     stick_grip_pose = [
         stick_pose[0],
@@ -860,7 +890,7 @@ def run_robot_drawing(
     ]
     listener_thread = threading.Thread(target=_keyboard_abort_listener, daemon=True)
     listener_thread.start()
-    node.get_logger().info("통합 UI의 일시정지·정지·중단점 재개 명령을 수신합니다." if live else "실행 중 x를 누르면 원위치 후 홈으로 복귀합니다.")
+    node.get_logger().info("실행 중 'x'를 누르면 잡고 있던 펜/막대를 원위치한 뒤 홈으로 복귀합니다.")
 
     try:
         import DSR_ROBOT2 as _dsr
@@ -873,131 +903,53 @@ def run_robot_drawing(
         else:
             if hasattr(_dsr, "_ros2_set_current_tool") and not _dsr._ros2_set_current_tool.wait_for_service(timeout_sec=15.0):
                 raise RuntimeError("로봇 툴 서비스에 연결할 수 없습니다. sodreal 상태를 확인하세요.")
-            if live and (sdk.get_tool()!=TOOL_NAME or sdk.get_tcp()!=TCP_NAME):
-                raise RuntimeError('선택된 Tool/TCP와 실행 설정이 다릅니다. 실측 보정에 사용한 Tool/TCP를 확인하고 ART_TOOL_NAME·ART_TCP_NAME을 설정하세요.')
             node.get_logger().info(f"툴/TCP 설정 중: {TOOL_NAME}, {TCP_NAME}")
             set_tool(TOOL_NAME)
             set_tcp(TCP_NAME)
 
-        if live:
-            api.start_monitor(ROBOT_ID)
-            api.ready()
-            live.check()
-        if live and resume_checkpoint:
-            payload=resume_checkpoint['payload'];saved=payload['runtime']
-            if cleanup_only:
-                held_item=verify_cleanup_context(resume_checkpoint,resources=resources,tool_name=TOOL_NAME,
-                    tcp_name=TCP_NAME,pen_poses=pen_poses,stick_pose=stick_grip_pose)
-            else:
-                verify_checkpoint(resume_checkpoint,ordered_strokes,plan_sha256=plan_sha256,
-                    resources=resources,tool_name=TOOL_NAME,tcp_name=TCP_NAME,z_offsets=PEN_Z_OFFSETS)
-                pen_index=int(saved['held_pen_id'].split('_')[1])-1
-                held_item=(list(pen_poses[pen_index]),f'펜 {pen_index+1}')
-            contact_pose=list(saved.get('contact_pose',cal_points[0]))
-            slope_a,slope_b=saved.get('slope_a',slope_a),saved.get('slope_b',slope_b)
-            live.runtime=dict(saved);live.pen=saved.get('held_pen_id') or ''
-            if live.journal:live.journal.restore(resume_checkpoint)
+        set_gripper(OFF, ON, "초기 재정렬 - 열기")
+        set_gripper(ON, OFF, "초기 재정렬 - 닫기")
+        check_abort()
+
+        node.get_logger().info("홈 위치 이동 시작...")
+        movej(posj(HOME_JOINTS), vel=J_VEL, acc=J_ACC)
+        node.get_logger().info("홈 위치 도착 완료")
+        check_abort()
+
+        if virtual:
+            node.get_logger().info("[가상 모드] 9점/기준막대 포스 탐색 생략 -> plane_calibration.json 좌표 사용")
+            pick_from_slot(stick_grip_pose, "기준 막대(가상)")
+            contact_pose = [float(v) for v in cal_points[0][:6]]
+            return_to_slot(stick_grip_pose, "기준 막대(가상)")
         else:
-            set_gripper(OFF, ON, "초기 재정렬 - 열기")
-            set_gripper(ON, OFF, "초기 재정렬 - 닫기")
-            check_abort()
-
-            node.get_logger().info("홈 위치 이동 시작...")
-            movej(posj(HOME_JOINTS), vel=J_VEL, acc=J_ACC)
-            node.get_logger().info("홈 위치 도착 완료")
-            check_abort()
-
-            if virtual:
-                node.get_logger().info("[가상 모드] 9점/기준막대 포스 탐색 생략 -> plane_calibration.json 좌표 사용")
-                pick_from_slot(stick_grip_pose, "기준 막대(가상)")
-                contact_pose = [float(v) for v in cal_points[0][:6]]
-                return_to_slot(stick_grip_pose, "기준 막대(가상)")
-            else:
-                if auto_calibrate:
-                    slope_a, slope_b = calibrate_9pt_with_closed_gripper(cal_points)
-                    movej(posj(HOME_JOINTS), vel=J_VEL, acc=J_ACC)
-                    check_abort()
-                else:
-                    node.get_logger().info(
-                        f"9점 자동 캘리브레이션 OFF -> 저장된 평면 기울기 사용 (a={slope_a:.6f}, b={slope_b:.6f})"
-                    )
-
-                pick_from_slot(stick_grip_pose, "기준 막대")
-                contact_pose = measure_floor_height_with_stick()
-                return_to_slot(stick_grip_pose, "기준 막대")
-
-        if live:
-            live.sensing=True
-            api.ready()
-            if not resume_checkpoint:
-                live.runtime=dict(contact_pose=list(contact_pose),slope_a=slope_a,slope_b=slope_b,
-                    resource_hashes=resources if live.journal else {},tool_name=TOOL_NAME,tcp_name=TCP_NAME,
-                    held_pen_id=None,held_item=None,phase='ready',paper_bounds=list(compute_safe_rect({'points':cal_points})),
-                    recovery_ceiling_mm=max(float(p[2]) for p in pen_poses+[stick_pose])+APPROACH_OFFSET_Z)
-            if cleanup_only:
-                live.confirm_recovery_ready()
-                api.stop();current=api.pose();current[2]=safe_lift(current)
-                live.motion(current,vel=PICK_VEL,acc=PICK_ACC,allow_pause=False)
-                if held_item:return_to_slot(*held_item)
-                movej(posj(HOME_JOINTS),vel=J_VEL,acc=J_ACC)
-                if live.journal:live.journal.store.mark(ui_job_id,'abandoned')
-                live.emit('STOPPED','이전 그림을 종료하고 펜 반납·홈 복귀를 확인했습니다.')
-                return
-            pending=resume_checkpoint
-            live.begin_run()
-            while True:
-                try:
-                    start_record=0;point_offset=0
-                    if pending:
-                        start_record,target_index=verify_checkpoint(pending,ordered_strokes,plan_sha256=plan_sha256,
-                            resources=resources,tool_name=TOOL_NAME,tcp_name=TCP_NAME,z_offsets=PEN_Z_OFFSETS)
-                        saved=pending['payload']['runtime']
-                        slope_a,slope_b=saved['slope_a'],saved['slope_b'];contact_pose=list(saved['contact_pose'])
-                        live.recovery_move(pending)
-                        point_offset=target_index-1
-                    active_pen=int(live.runtime['held_pen_id'].split('_')[1])-1 if live.runtime.get('held_pen_id') else None
-                    for record_index in range(start_record,len(ordered_strokes)):
-                        active_record=ordered_strokes[record_index]
-                        idx=int(active_record['pen_id'].split('_')[1])-1
-                        if active_pen!=idx:
-                            live.runtime['phase']='pen_change'
-                            if held_item:return_to_slot(*held_item)
-                            live.pen=active_record['pen_id']
-                            pick_from_slot(pen_poses[idx],f'펜 {idx+1}')
-                            active_pen=idx
-                        live.pen=active_record['pen_id']
-                        points=active_record['points_robot'][point_offset:]
-                        draw_stroke_group(f'펜 {idx+1}',[points],contact_pose,PEN_Z_OFFSETS[idx])
-                        point_offset=0;pending=None
-                    live.runtime['phase']='finishing'
-                    if held_item:return_to_slot(*held_item)
-                    movej(posj(HOME_JOINTS),vel=J_VEL,acc=J_ACC)
-                    set_gripper(OFF,OFF,'기본')
-                    live.complete()
-                except ResumeDrawing as resume:
-                    pending=resume.checkpoint
-                except ForceStopped as exc:
-                    try:live.wait_force_reset(exc)
-                    except ResumeDrawing as resume:pending=resume.checkpoint
-        else:
-            for idx in range(3):
+            if auto_calibrate:
+                slope_a, slope_b = calibrate_9pt_with_closed_gripper(cal_points)
+                movej(posj(HOME_JOINTS), vel=J_VEL, acc=J_ACC)
                 check_abort()
-                pen_name = f"펜 {idx + 1}"
-                pick_from_slot(pen_poses[idx], pen_name)
-                draw_stroke_group(pen_name, pen_groups[idx], contact_pose, PEN_Z_OFFSETS[idx])
-                return_to_slot(pen_poses[idx], pen_name)
-    
-            movej(posj(HOME_JOINTS), vel=J_VEL, acc=J_ACC)
-            set_gripper(OFF, OFF, "기본")
-            node.get_logger().info("독립 실행 멀티펜 드로잉 완료!")
-    except cancel_types as e:
-        if live and live.state=='COMPLETED':
-            # 펜 반납·홈 도달이 끝난 작업은 다시 슬롯 이동을 하지 않습니다.
-            api.stop()
-            live.emit('STOPPED','완료된 이전 그림의 실행 세션을 종료했습니다.')
-            return
-        if live:
-            api.stop();live.intent=None;live.handling_reset=True
+            else:
+                node.get_logger().info(
+                    f"9점 자동 캘리브레이션 OFF -> 저장된 평면 기울기 사용 (a={slope_a:.6f}, b={slope_b:.6f})"
+                )
+
+            pick_from_slot(stick_grip_pose, "기준 막대")
+            contact_pose = measure_floor_height_with_stick()
+            return_to_slot(stick_grip_pose, "기준 막대")
+
+        for idx, strokes in enumerate(pen_groups):
+            if not strokes:
+                continue
+            check_abort()
+            pen_name = f"펜 {idx + 1}"
+            pick_from_slot(pen_poses[idx], pen_name)
+            z_off = PEN_Z_OFFSETS[idx] if idx < len(PEN_Z_OFFSETS) else PEN_Z_OFFSETS[-1]
+            z_deltas_group = pen_z_deltas[idx] if pen_z_deltas and idx < len(pen_z_deltas) else None
+            draw_stroke_group(pen_name, strokes, contact_pose, z_off, z_deltas_group)
+            return_to_slot(pen_poses[idx], pen_name)
+
+        movej(posj(HOME_JOINTS), vel=J_VEL, acc=J_ACC)
+        set_gripper(OFF, OFF, "기본")
+        node.get_logger().info("독립 실행 멀티펜 드로잉 완료!")
+    except DrawingAborted as e:
         node.get_logger().warn(str(e))
         cur_pose = [float(v) for v in get_current_posx(DR_BASE)[0][:6]]
         if held_item is not None:
@@ -1020,49 +972,11 @@ def run_robot_drawing(
         movej(posj(HOME_JOINTS), vel=J_VEL, acc=J_ACC)
         set_gripper(OFF, OFF, "기본")
         node.get_logger().info("중단 후 안전 복귀 및 홈 이동 완료")
-        if live:
-            if live.journal:live.journal.store.mark(ui_job_id,'abandoned')
-            live.emit('STOPPED','이동 정지·펜 반납·홈 도달 확인')
-    except Exception as exc:
-        if live:
-            try:
-                api.stop()
-                live.record_interruption(type(exc).__name__,api.pose(),stop_confirmed=True)
-                if isinstance(exc,WorkerExit):
-                    live.emit('STOPPED','프로세스 종료에 따른 이동 정지를 확인했습니다.')
-                    return
-            except Exception as stop_exc:
-                live.emit('RECOVERY_REQUIRED','실제 정지 확인 실패: '+str(stop_exc),'STOP_UNCONFIRMED')
-                raise
-            live.emit('RECOVERY_REQUIRED',str(exc),'EXECUTION_FAILED')
-        raise
     finally:
         stop_listener_event.set()
         listener_thread.join(timeout=0.5)
-        if live and hasattr(api,"close"):api.close()
         node.destroy_node()
         rclpy.shutdown()
-
-
-def prepare_ui_plan(data,cal,pen_poses,stick_pose):
-    """보정 영역 안에서 종이 mm·실행 순서·펜·레이어를 그대로 변환합니다."""
-    cal_points=cal.get('points',[])
-    slope_a,slope_b=float(cal.get('a',0.)),float(cal.get('b',0.))
-    safe_rect=compute_safe_rect(cal,RECT_MARGIN_MM)
-    if len(pen_poses)!=3:raise ValueError('펜 슬롯 3개의 실제 위치가 필요합니다.')
-    poses=[stick_pose]+pen_poses+cal_points
-    if len(cal_points)!=9 or any(len(p)!=6 or not all(math.isfinite(float(v)) for v in p) for p in poses) or not all(math.isfinite(v) for v in (slope_a,slope_b)):
-        raise ValueError('UI 실행에는 유효한 9점·펜 3개·기준 막대의 6축 측정값이 필요합니다.')
-    width,height=data['paper_mm']['width'],data['paper_mm']['height']
-    all_x=[float(p[0]) for p in cal_points];all_y=[float(p[1]) for p in cal_points]
-    cx=(min(all_x)+max(all_x))/2;cy=(min(all_y)+max(all_y))/2
-    ordered_strokes=[]
-    for record in data['strokes']:
-        mapped=[(cx+height/2-y,cy-(x-width/2)) for x,y in record['points_mm']]
-        if any(not safe_rect[0]-1e-6<=x<=safe_rect[1]+1e-6 or not safe_rect[2]-1e-6<=y<=safe_rect[3]+1e-6 for x,y in mapped):
-            raise ValueError('A4 계획이 실제 9점 안전 영역을 벗어납니다. 종이 보정·크기를 확인하세요.')
-        ordered_strokes.append({**record,'points_robot':mapped})
-    return ordered_strokes
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -1073,11 +987,6 @@ def main(argv: Optional[List[str]] = None) -> None:
     cal_group = parser.add_mutually_exclusive_group()
     cal_group.add_argument("--skip-cal", "--no-cal", action="store_true", help="9점 자동 캘리브레이션 OFF (건너뛰기)")
     cal_group.add_argument("--cal", action="store_true", help="9점 자동 캘리브레이션 ON (강제 실행)")
-    parser.add_argument('--resume-checkpoint',default='')
-    parser.add_argument('--cleanup-checkpoint',action='store_true')
-    parser.add_argument('--ui-control',action='store_true',help='통합 UI의 JSON 제어·관측 프로토콜')
-    parser.add_argument('--job-id',default='')
-    parser.add_argument('--plan-sha256',default='')
     args, _ = parser.parse_known_args(argv)
 
     auto_calibrate = AUTO_CALIBRATE_9PT
@@ -1088,8 +997,8 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     stick_pose = [float(v) for v in _load_json(STICK_FILE, "기준 막대 위치")[:6]]
     pen_data = _load_json(PENS_FILE, "펜 위치")
-    if len(pen_data) != 3:
-        raise ValueError(f"펜 위치 개수가 3개가 아닙니다: {PENS_FILE}")
+    if len(pen_data) not in (3, 4):
+        raise ValueError(f"펜 위치 개수가 3개 또는 4개가 아닙니다: {PENS_FILE}")
     pen_poses = [[float(v) for v in p[:6]] for p in pen_data]
 
     cal = _load_json(CALIBRATION_FILE, "9점 캘리브레이션")
@@ -1097,30 +1006,42 @@ def main(argv: Optional[List[str]] = None) -> None:
     slope_a, slope_b = float(cal.get("a", 0.0)), float(cal.get("b", 0.0))
     safe_rect = compute_safe_rect(cal, RECT_MARGIN_MM)
 
-    ordered_strokes=None;control_settings=None;checkpoint=None
-    if args.ui_control:
-        from art_artwork_pipeline.live_control import load_settings
-        from art_artwork_pipeline.plan import load_plan
-        summary=load_plan(args.job_id,args.input,plan_root=Path(args.input).parent.parent)
-        import hashlib
-        raw=Path(summary.path).read_bytes()
-        if not args.plan_sha256 or hashlib.sha256(raw).hexdigest()!=args.plan_sha256:raise ValueError('UI에서 승인한 DrawingPlan SHA-256과 다릅니다.')
-        data=json.loads(raw)
-        control_settings=load_settings() if not args.dry_run else None
-        ordered_strokes=prepare_ui_plan(data,cal,pen_poses,stick_pose)
-        if args.resume_checkpoint:
-            from art_artwork_pipeline.recovery_store import CheckpointStore
-            checkpoint=CheckpointStore().latest(job_id=args.job_id,checkpoint_id=args.resume_checkpoint)
-            if checkpoint is None:raise ValueError('해당 작업의 미해결 중단점이 없습니다.')
-        strokes_mm=[r['points_robot'] for r in ordered_strokes]
-        pen_groups=[[r['points_robot'] for r in ordered_strokes if r['pen_id']==f'PEN_{idx+1}'] for idx in range(3)]
-    else:
-        strokes_px=load_strokes_from_input(args.input)
-        strokes_mm=fit_strokes_to_rect(strokes_px,safe_rect)
-        pen_groups=split_strokes_evenly(strokes_mm,num_parts=3)
-        if SORT_NEAREST_STROKES:pen_groups=[sort_strokes_nearest(g) for g in pen_groups]
+    strokes_px = load_strokes_from_input(args.input)
+    strokes_mm = fit_strokes_to_rect(strokes_px, safe_rect)
 
-    preview_path, archived_path = save_drawing_preview(pen_groups,safe_rect,args.input,preview_dir=str(Path(args.input).parent/'robot_preview') if args.ui_control else PREVIEW_DIR)
+    pen_ids = None
+    z_deltas_mm = None
+    if args.input.lower().endswith(".json"):
+        with open(args.input, "r", encoding="utf-8") as f:
+            raw_json = json.load(f)
+        pen_ids = raw_json.get("pen_ids")
+        raw_z_deltas = raw_json.get("z_deltas_mm")
+        if isinstance(raw_z_deltas, list) and len(raw_z_deltas) == len(strokes_mm):
+            z_deltas_mm = [
+                [float(v) for v in dz] if isinstance(dz, list) and len(dz) == len(st) else [0.0] * len(st)
+                for st, dz in zip(strokes_mm, raw_z_deltas)
+            ]
+
+    pen_z_deltas: Optional[List[List[List[float]]]] = None
+    if isinstance(pen_ids, list) and len(pen_ids) == len(strokes_mm) and "PEN_4" in pen_ids:
+        art_strokes = [st for st, pid in zip(strokes_mm, pen_ids) if pid != "PEN_4"]
+        text_strokes = [st for st, pid in zip(strokes_mm, pen_ids) if pid == "PEN_4"]
+        art_groups = split_strokes_evenly(art_strokes, num_parts=3) if art_strokes else [[], [], []]
+        if SORT_NEAREST_STROKES:
+            art_groups = [sort_strokes_nearest(g) for g in art_groups]
+        if len(pen_poses) < 4:
+            raise ValueError(f"4번째 펜(검은색 글씨용) 슬롯 좌표가 없습니다. {PENS_FILE}에 4번째 좌표를 추가하세요.")
+        pen_groups = art_groups + [text_strokes]
+        if z_deltas_mm is not None:
+            text_z_deltas = [dz for dz, pid in zip(z_deltas_mm, pen_ids) if pid == "PEN_4"]
+            art_z_deltas = [[[0.0] * len(st) for st in grp] for grp in art_groups]
+            pen_z_deltas = art_z_deltas + [text_z_deltas]
+    else:
+        pen_groups = split_strokes_evenly(strokes_mm, num_parts=3)
+        if SORT_NEAREST_STROKES:
+            pen_groups = [sort_strokes_nearest(g) for g in pen_groups]
+
+    preview_path, archived_path = save_drawing_preview(pen_groups, safe_rect, args.input)
     print(
         f"[준비 완료] 입력={args.input} | 총 획={len(strokes_mm)}개 | "
         f"펜별 분배={[len(g) for g in pen_groups]} | "
@@ -1140,9 +1061,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         slope_b,
         virtual=args.virtual,
         auto_calibrate=auto_calibrate,
-        ordered_strokes=ordered_strokes,ui_job_id=args.job_id if args.ui_control else None,control_settings=control_settings,
-        plan_path=args.input if args.ui_control else None,plan_sha256=args.plan_sha256 if args.ui_control else None,
-        resume_checkpoint=checkpoint,cleanup_only=args.cleanup_checkpoint,
+        pen_z_deltas=pen_z_deltas,
     )
 
 

@@ -69,7 +69,7 @@ def test_reject_invalid_inputs_before_ros():
     fake = FakeBridge()
     result = request(fake, "POST", "/bridge/jobs", json={"job_id": "../bad", "plan_path": "x"})
     assert result.status_code == 422 and fake.last is None
-    result = request(fake, "POST", "/bridge/jobs/JOB_001/control", json={"command": "INVALID", "request_id": "id1"})
+    result = request(fake, "POST", "/bridge/jobs/JOB_001/control", json={"command": "STOP", "request_id": "id1"})
     assert result.status_code == 422
 
 

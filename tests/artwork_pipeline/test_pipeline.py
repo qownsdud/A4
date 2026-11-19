@@ -13,8 +13,12 @@ from art_artwork_pipeline.path_planner.drawing_plan import validate_plan, build_
 from art_artwork_pipeline.path_planner.path_optimizer import optimize_plan
 from art_artwork_pipeline.puzzle.colors import balanced_cells
 from art_artwork_pipeline.calligraphy.generator import generate_strokes
+import sys
 from art_artwork_pipeline.plan import load_plan
-from fake_execution import FakeExecutionBackend
+_JM_SRC = Path(__file__).resolve().parents[2] / 'control/ros2_ws/src/art_job_manager'
+if str(_JM_SRC) not in sys.path:
+    sys.path.insert(0, str(_JM_SRC))
+from art_job_manager.production_engine import ProductionEngine
 from art_kiosk import server
 from art_kiosk_bridge.http_api import create_app
 from art_kiosk_bridge.schemas import JobCommandReply
@@ -61,8 +65,10 @@ def test_colors_and_layers_preserved():
     assert set(before)=={(s['pen_id'],s['layer']) for s in result['strokes']}
     assert result['grid']==plan['grid']
     assert validate_plan(result)
+    mixed = generate_strokes('안녕! Hi ★')
+    assert len(mixed) > 0 and all(s['layer'] == 'calligraphy' for s in mixed)
     with pytest.raises(ValueError):
-        generate_strokes('안녕')
+        generate_strokes('안녕\n줄바꿈')
 
 def test_path_isolation_cancellation_and_failed_publication(tmp_path):
     first=lineart(tmp_path,'FIRST')
@@ -77,14 +83,16 @@ def test_path_isolation_cancellation_and_failed_publication(tmp_path):
     assert not (first/'drawing_plan.json').exists()
     assert not (first/'.processing').exists()
     with pytest.raises(ValueError):
-        prepare_artwork('FIRST',stage='PLAN',input_path=str(first/'lineart.png'),root=tmp_path,text='한글')
+        prepare_artwork('FIRST',stage='PLAN',input_path=str(first/'lineart.png'),root=tmp_path,text='한글\n오류')
     assert not (first/'drawing_plan.json').exists()
+    out = prepare_artwork('FIRST',stage='PLAN',input_path=str(first/'lineart.png'),root=tmp_path,text='한글! ★')
+    assert Path(out['plan_path']).is_file()
 
 def test_kiosk_bridge_real_pipeline_manager_approval(monkeypatch,tmp_path):
     monkeypatch.setenv('ART_JOB_PLAN_ROOT',str(tmp_path))
     monkeypatch.setenv('ART_LINEART_METHOD','cv')
     monkeypatch.delenv('ART_ADMIN_TOKEN', raising=False)
-    engine=FakeExecutionBackend(plan_root=tmp_path)
+    engine=ProductionEngine(tmp_path/'jobs.db',plan_root=tmp_path)
     class Bridge:
         def is_ready(self): return True
         async def prepare_artwork(self,body):
@@ -109,7 +117,7 @@ def test_kiosk_bridge_real_pipeline_manager_approval(monkeypatch,tmp_path):
             assert not engine.statuses()
             result=await client.post('/api/admin/jobs',headers=auth,json={'job_id':job,'plan_path':response.json()['plan_path']})
             assert result.status_code==202,result.text
-            assert engine.status(job)['state']=='DISPATCHING'
+            assert engine.status(job)['state']=='QUEUED'
     try:
         asyncio.run(run())
     finally:

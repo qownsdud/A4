@@ -1,4 +1,0 @@
-# 이 파일은 참고 설정입니다. 실물 실행에는 별도의 검증된 ART_EQUIPMENT_PROFILE이 필요합니다.
-hardware_validated: false
-robot_model: m0609
-robot_id: dsr01

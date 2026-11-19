@@ -25,7 +25,7 @@ class CreateJobBody(BaseModel):
 
 
 class ControlJobBody(BaseModel):
-    command: Literal["PAUSE", "RESUME", "CANCEL", "RESET", "STOP", "RECONCILE", "REPLACE"]
+    command: Literal["PAUSE", "RESUME", "CANCEL"]
     request_id: str = Field(min_length=1, max_length=64)
 
 
@@ -46,12 +46,6 @@ class JobStatusReply(BaseModel):
     current_pen: str = ""
     error_code: str = ""
     message: str = ""
-    completed_length_mm: float = Field(default=0.,ge=0)
-    total_length_mm: float = Field(default=0.,ge=0)
-    external_force: bool = False
-    run_id: int = 0
-    control_request_id: str = ""
-    control_error: str = ""
     observed_at_unix: float
     # TEAM_SYNC(JobManager/UI): define stale-state policy and polling frequency.
 
@@ -69,7 +63,7 @@ class PrepareArtworkBody(BaseModel):
     input_path: str = Field(min_length=1,max_length=4096)
     method: Literal['cv','dl','mfl_ld'] = 'cv'
     paper: Literal['a4','a4_landscape_margin','postcard','square'] = 'a4'
-    detail: str = Field(default='medium',regex=r'^(?:high|medium|low|100|[0-9]{1,2})$')
+    detail: str = Field(default='medium', pattern=r'^(?:high|medium|low|100|[0-9]{1,2})$')
     seed: int = 42
     text: str = Field(default='',max_length=120)
     class Config:

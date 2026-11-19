@@ -69,12 +69,12 @@ def parse_args() -> argparse.Namespace:
         default="none",
         help="목표 용지 비율 패딩 적용 (기본: none)",
     )
+    from ..pipeline_runner import a4_root
     parser.add_argument(
         "--output-dir",
-        default=os.environ.get('ART_PREVIEW_ROOT', str(Path.home() / 'A4/data/previews')),
+        default=os.environ.get('ART_PREVIEW_ROOT', str(a4_root() / 'data/previews')),
         help="결과 이미지 저장 디렉토리 (기본: outputs)",
     )
-    parser.add_argument('--detail-level',type=int,choices=range(101),help='UI 디테일 0~100')
     return parser.parse_args()
 
 
@@ -93,12 +93,6 @@ def main() -> None:
             detect_resolution=args.resolution,image_resolution=args.resolution,
             pre_smooth=args.pre_smooth,binarize=args.binarize,
             line_threshold=args.line_threshold,min_line_area=args.min_line_area))
-        if args.detail_level is not None:
-            from ..detail import detail_parameters
-            params=detail_parameters(str(args.detail_level))
-            config.face_canny_low=params['canny_low'];config.face_canny_high=params['canny_high']
-            config.face_bilateral_sigma=100-params['level']*.6
-            config.face_line_thickness=1 if params['level']>=67 else 2
         converter=LineartConverterMflLd(config)
         try:
             converter.convert_to_file(input_path,output_dir/f'{stem}_mfl_ld.png')

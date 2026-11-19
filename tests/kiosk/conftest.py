@@ -4,5 +4,5 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-for path in (ROOT, ROOT / "ros2_ws/src/art_job_manager", ROOT / "ros2_ws/src/art_kiosk_bridge"):
+for path in (ROOT, ROOT / "control/ros2_ws/src/art_job_manager", ROOT / "ros2_ws/src/art_kiosk_bridge"):
     sys.path.insert(0, str(path))

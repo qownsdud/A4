@@ -17,7 +17,11 @@ BASE_DIR = Path(__file__).resolve().parent
 from .drawing_plan import build_plan, validate_plan, write_job_plan  # noqa: E402
 from .extractor import extract_vector_paths  # noqa: E402
 from .svg_exporter import export_svg  # noqa: E402
-from .visualize import render_comparison_sheet, render_pure_vector_image  # noqa: E402
+from .visualize import (  # noqa: E402
+    render_balanced_preview,
+    render_comparison_sheet,
+    render_pure_vector_image,
+)
 
 
 def _archive_previous_outputs(out_dir: Path, keep_names: set[str]) -> int:
@@ -40,7 +44,8 @@ def _archive_previous_outputs(out_dir: Path, keep_names: set[str]) -> int:
 
 
 def main() -> None:
-    plan_root = Path(os.environ.get('ART_JOB_PLAN_ROOT', str(Path.home() / 'A4/data/jobs'))).expanduser()
+    from ..pipeline_runner import job_root
+    plan_root = job_root()
     latest = plan_root / 'latest.json'
     default_input = None
     if latest.is_file():
@@ -51,12 +56,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Phase 3: Extract vector strokes and render visual outputs.")
     parser.add_argument("--input", type=Path, default=default_input, required=default_input is None, help="입력 흑백 라인아트 이미지 경로 (확인된 latest가 없으면 필수)")
     parser.add_argument("--out-dir", type=Path, default=default_out_dir, help="결과 저장 디렉토리")
-    parser.add_argument("--epsilon", type=float, default=0.45, help="approxPolyDP 허용 오차 (px)")
-    parser.add_argument("--min-length", type=float, default=2.5, help="최소 선 길이 (px)")
+    parser.add_argument("--epsilon", type=float, default=1.5, help="approxPolyDP 허용 오차 (px)")
+    parser.add_argument("--min-length", type=float, default=8.0, help="최소 선 길이 (px)")
     parser.add_argument("--thickness", type=int, default=1, help="순수 벡터 이미지 선 두께 (px)")
     parser.add_argument("--bridge-gap", type=float, default=4.5, help="끊어진 끝점 자동 연결 최대 거리 (px)")
-    parser.add_argument("--smooth", type=int, default=2, help="Chaikin 곡선 스무딩 반복 횟수")
-    parser.add_argument("--no-thick-contours", action="store_true", help="굵은 영역 외곽선 보존 비활성화")
+    parser.add_argument("--smooth", type=int, default=0, help="Chaikin 곡선 스무딩 반복 횟수")
+    parser.add_argument("--thick-contours", action="store_true", help="굵은 영역 외곽선 보존 활성화")
+    parser.add_argument("--no-thick-contours", action="store_true", help="굵은 영역 외곽선 보존 비활성화(하위 호환용)")
     parser.add_argument("--morph-clean", action="store_true", help="미세 잡티 제거용 모폴로지 연산 적용")
     parser.add_argument("--seed", type=int, default=42, help="16분할 색상 배정 시드")
     parser.add_argument("--job-id", type=str, default=None, help="JobManager에 등록할 ID")
@@ -70,7 +76,7 @@ def main() -> None:
         epsilon=args.epsilon,
         min_length_px=args.min_length,
         morph_clean=args.morph_clean,
-        preserve_thick_contours=not args.no_thick_contours,
+        preserve_thick_contours=args.thick_contours and not args.no_thick_contours,
         bridge_gap_px=args.bridge_gap,
         smooth_iterations=args.smooth,
     )
@@ -81,6 +87,12 @@ def main() -> None:
 
     vector_img_path = render_pure_vector_image(result, args.out_dir / f"{stem}_vector.png", line_thickness=args.thickness)
     compare_img_path = render_comparison_sheet(str(args.input), result, args.out_dir / f"{stem}_comparison.png")
+    balanced_img_path = render_balanced_preview(
+        result,
+        args.out_dir / f"{stem}_balanced.png",
+        min_length_px=args.min_length,
+        epsilon=args.epsilon,
+    )
 
     json_path = args.out_dir / f"{stem}_strokes_px.json"
     payload = [
@@ -123,6 +135,7 @@ def main() -> None:
     print(f" - 총 그리기 길이: {result.draw_length_px:.1f} px | Pen-Up 이동 길이: {result.travel_length_px:.1f} px")
     print(f" - 순수 벡터 이미지: {vector_img_path}")
     print(f" - 비교 시트 이미지: {compare_img_path}")
+    print(f" - Balanced 미리보기: {balanced_img_path}")
     print(f" - 픽셀 Stroke JSON: {json_path}")
     print(f" - DrawingPlan JSON: {plan_path}")
     print(f" - SVG: {svg_path}")

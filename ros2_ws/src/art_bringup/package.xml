@@ -5,5 +5,5 @@
 <buildtool_depend>ament_cmake</buildtool_depend>
 <exec_depend>launch_ros</exec_depend><exec_depend>art_kiosk</exec_depend>
 <exec_depend>art_kiosk_bridge</exec_depend><exec_depend>art_artwork_pipeline</exec_depend>
-
+<exec_depend>art_job_manager</exec_depend><exec_depend>art_drawing_controller</exec_depend>
 <export><build_type>ament_cmake</build_type></export></package>

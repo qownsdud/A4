@@ -11,16 +11,16 @@ def layout(paper="a4", text=False):
             size=(297.0, 210.0),
             margin=20.0,
             artwork=(20.0, 20.0, 257.0, 140.0 if text else 170.0),
-            text_origin=(20.0, 180.0),
-            text_bounds=(20.0, 165.0, 277.0, 190.0),
+            text_origin=(50.0, 180.0),
+            text_bounds=(50.0, 165.0, 247.0, 190.0),
         )
     if paper == "a4":
         return dict(
             size=(210.0, 297.0),
             margin=15.0,
             artwork=(15.0, 15.0, 180.0, 225.0 if text else 267.0),
-            text_origin=(15.0, 270.0),
-            text_bounds=(15.0, 250.0, 195.0, 282.0),
+            text_origin=(45.0, 270.0),
+            text_bounds=(45.0, 250.0, 165.0, 282.0),
         )
     raise ValueError("계획은 A4 가로 또는 세로만 지원합니다.")
 

@@ -13,7 +13,7 @@ from PIL import Image
 import pytest
 
 from art_kiosk import server
-from fake_execution import FakeExecutionBackend
+from art_job_manager.production_engine import ProductionEngine
 from art_kiosk_bridge.http_api import create_app
 from art_kiosk_bridge.schemas import JobCommandReply, JobStatusReply
 
@@ -111,7 +111,7 @@ def test_user_screen_has_no_robot_controls_or_bridge_calls():
         js = request("GET", f"/static/{name}").text
         assert "127.0.0.1:8001" not in js and "/bridge/" not in js
     assert "innerHTML" not in script
-    assert request("GET", "/admin").status_code == 307
+    assert request("GET", "/admin").status_code == 200
     assert "connect-src 'self'" in request("GET", "/admin").headers["content-security-policy"]
     assert request("POST", "/api/kiosk/jobs/J1/control", json={}).status_code in (404, 405)
     capabilities = request("GET", "/api/kiosk/capabilities").json()
@@ -186,7 +186,7 @@ def test_recovery_status_is_unconfirmed(monkeypatch):
     assert request("GET", "/api/kiosk/jobs/J1").json()["state_confirmed"] is False
 
 
-@pytest.mark.parametrize("body", [{"command": "INVALID", "request_id": "P1"},
+@pytest.mark.parametrize("body", [{"command": "STOP", "request_id": "P1"},
                                  {"command": "PAUSE", "request_id": "../bad"},
                                  {"command": "PAUSE", "request_id": "P1\n"},
                                  {"command": "PAUSE", "request_id": "P1", "role": "admin"}])
@@ -247,29 +247,32 @@ class EngineBridge:
 def test_prepared_job_and_duplicate_control_use_real_manager_rules(monkeypatch, tmp_path):
     root = tmp_path / "plans"
     plan = write_plan(root)
-    engine = FakeExecutionBackend(plan_root=root)
+    engine = ProductionEngine(tmp_path / "jobs.db", plan_root=root)
     monkeypatch.setattr(server.app.state, "bridge_transport", httpx.ASGITransport(app=create_app(EngineBridge(engine))))
     try:
         create = request("POST", "/api/admin/jobs", headers=AUTH,
                          json={"job_id": "J1", "plan_path": str(plan)})
-        assert create.status_code == 202 and create.json()["manager_state"] == "DISPATCHING"
+        assert create.status_code == 202 and create.json()["manager_state"] == "QUEUED"
         assert request("POST", "/api/admin/jobs", headers=AUTH,
-                       json={"job_id": "J1", "plan_path": str(plan)}).status_code == 202
-        engine.confirm_state("J1","DRAWING")
+                       json={"job_id": "J1", "plan_path": str(plan)}).status_code == 409
+        engine.prepare_dispatch("J1")
+        engine.on_controller_started("J1")
         body = {"command": "PAUSE", "request_id": "P1"}
         for _ in range(2):
             result = request("POST", "/api/admin/jobs/J1/control", headers=AUTH, json=body)
             assert result.status_code == 202 and result.json()["manager_state"] == "PAUSING"
-        assert len(engine.receipts)==1
+        with engine.repo.transaction() as con:
+            assert con.execute("SELECT count(*) FROM command_receipts").fetchone()[0] == 1
         conflict = request("POST", "/api/admin/jobs/J1/control", headers=AUTH,
                            json={"command": "CANCEL", "request_id": "P1"})
         assert conflict.status_code == 409
         assert conflict.json()["detail"]["error_code"] == "REQUEST_ID_CONFLICT"
-        assert engine.confirm_state("J1","PAUSED")
+        assert engine.on_action_result("J1", ros_status=5, success=False, final_state="INTERRUPTED_SAFE",
+                                       completed_strokes=0, pen_up_confirmed=True)
         assert request("GET", "/api/kiosk/jobs/J1").json()["state"] == "PAUSED"
         resumed = request("POST", "/api/admin/jobs/J1/control", headers=AUTH,
                           json={"command": "RESUME", "request_id": "R1"})
-        assert resumed.status_code == 202 and resumed.json()["manager_state"] == "RESUMING"
+        assert resumed.status_code == 202 and resumed.json()["manager_state"] == "QUEUED"
         cancelled = request("POST", "/api/admin/jobs/J1/control", headers=AUTH,
                             json={"command": "CANCEL", "request_id": "C1"})
         assert cancelled.status_code == 202 and cancelled.json()["manager_state"] == "STOPPED"
@@ -281,7 +284,7 @@ def test_prepared_plan_still_validated_by_manager(monkeypatch, tmp_path):
     root = tmp_path / "plans"
     plan = write_plan(root)
     plan.write_text("[]", encoding="utf-8")
-    engine = FakeExecutionBackend(plan_root=root)
+    engine = ProductionEngine(tmp_path / "jobs.db", plan_root=root)
     monkeypatch.setattr(server.app.state, "bridge_transport", httpx.ASGITransport(app=create_app(EngineBridge(engine))))
     try:
         result = request("POST", "/api/admin/jobs", headers=AUTH,
@@ -296,9 +299,10 @@ def test_prepared_plan_still_validated_by_manager(monkeypatch, tmp_path):
 def test_lost_control_response_replays_committed_receipt(monkeypatch, tmp_path):
     root = tmp_path / "plans"
     plan = write_plan(root)
-    engine = FakeExecutionBackend(plan_root=root)
+    engine = ProductionEngine(tmp_path / "jobs.db", plan_root=root)
     engine.create_job("J1", str(plan))
-    engine.confirm_state("J1","DRAWING")
+    engine.prepare_dispatch("J1")
+    engine.on_controller_started("J1")
 
     class LostResponseTransport(httpx.AsyncBaseTransport):
         def __init__(self):
@@ -326,7 +330,8 @@ def test_lost_control_response_replays_committed_receipt(monkeypatch, tmp_path):
         assert replay.status_code == 202
         assert replay.json()["physical_state_confirmed"] is False
         assert transport.sent_ids == ["P_LOST", "P_LOST"]
-        assert len(engine.receipts)==1
+        with engine.repo.transaction() as con:
+            assert con.execute("SELECT count(*) FROM command_receipts").fetchone()[0] == 1
     finally:
         engine.close()
 

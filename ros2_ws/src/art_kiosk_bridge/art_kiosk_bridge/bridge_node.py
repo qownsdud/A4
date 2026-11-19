@@ -45,6 +45,7 @@ class KioskBridgeNode(Node):
         self._create_client = self.create_client(CreateJob, create_service)
         self._control_client = self.create_client(ControlJob, control_service)
         self._lock = threading.Lock()
+        self._active_artwork_handle = None
         self._statuses: dict[str, JobStatusReply] = {}
         self._status_subscription = self.create_subscription(
             JobStatus, status_topic, self._on_status, 10
@@ -64,8 +65,6 @@ class KioskBridgeNode(Node):
             state=msg.state,
             completed_strokes=int(msg.completed_strokes),
             total_strokes=int(msg.total_strokes),
-            completed_length_mm=float(msg.completed_length_mm),total_length_mm=float(msg.total_length_mm),
-            external_force=msg.external_force,run_id=int(msg.run_id),control_request_id=msg.control_request_id,control_error=msg.control_error,
             current_pen=msg.current_pen,
             error_code=msg.error_code,
             message=msg.message,
@@ -96,13 +95,13 @@ class KioskBridgeNode(Node):
             return self._statuses.get(job_id)
 
     # [핵심 기능] ROS 비동기 Service를 호출하고 타임아웃 및 job_id 일치 검증
-    async def _call(self, client, request, expected_job_id: str, *, timeout_sec=None) -> JobCommandReply:
+    async def _call(self, client, request, expected_job_id: str) -> JobCommandReply:
         if not client.service_is_ready():
             raise ServiceUnavailable("ROS 2 JobManager service unavailable")
         if self._service_server_count(client.srv_name) != 1:
             raise ServiceUnavailable('JobManager 서버가 중복되거나 연결이 미확정입니다. Discovery 설정을 확인하세요.')
         future = client.call_async(request)
-        deadline = time.monotonic() + (self.timeout_sec if timeout_sec is None else timeout_sec)
+        deadline = time.monotonic() + self.timeout_sec
         # Nonblocking poll: executor spins separately and completes ROS future.
         while not future.done():
             if time.monotonic() >= deadline:
@@ -138,9 +137,7 @@ class KioskBridgeNode(Node):
         request.job_id = job_id
         request.command = command
         request.request_id = request_id
-        # 정리 명령은 여러 차례 실제 상태를 관측하므로 일반 제어 응답보다 기다립니다.
-        return await self._call(self._control_client, request, job_id,
-                                timeout_sec=max(self.timeout_sec, 40.) if command == 'REPLACE' else (max(self.timeout_sec, 12.) if command in ('RECONCILE','RESUME') else None))
+        return await self._call(self._control_client, request, job_id)
 
     async def prepare_artwork(self, body):
         deadline = time.monotonic() + 3.0
@@ -166,17 +163,37 @@ class KioskBridgeNode(Node):
         handle = await wait(self._artwork.send_goal_async(goal),3.)
         if not handle.accepted:
             raise ServiceUnavailable('Pipeline이 사용 중이거나 요청을 거절했습니다.')
+        with self._lock:
+            self._active_artwork_handle = handle
         try:
             wrapped = await wait(handle.get_result_async(),140.)
         except ServiceTimeout:
             handle.cancel_goal_async()
             raise
+        finally:
+            with self._lock:
+                if self._active_artwork_handle is handle:
+                    self._active_artwork_handle = None
         result=wrapped.result
         if result.job_id != body.job_id:
             raise ContractMismatch('Pipeline 작업 ID가 일치하지 않습니다.')
         if not result.success:
             raise ArtworkFailed(result.error_code+': '+result.message)
         return {key:getattr(result,key) for key in ('job_id','lineart_path','plan_path','preview_path')}
+
+    async def cancel_artwork(self) -> dict[str, object]:
+        with self._lock:
+            handle = self._active_artwork_handle
+        if handle is None:
+            return {"canceled": False}
+        try:
+            future = handle.cancel_goal_async()
+            deadline = time.monotonic() + 2.0
+            while not future.done() and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            return {"canceled": True}
+        except Exception:
+            return {"canceled": False}
 
     def destroy_node(self):
         # ActionClient도 Node의 기본 정리 대상에 포함되지 않습니다.
