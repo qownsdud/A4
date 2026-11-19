@@ -6,7 +6,109 @@
   const state = {photo: null, stream: null, mirrored: true, revision: 0, readyRevision: -1,
     ticket: '', jobId: '', requestId: '', inflightRequestId: '', preparing: false, submitting: false, pending: false,
     blocked: false, lastPhase: 'IDLE', autoTimer: null, snapshot: null, expiry: null, resultUrl: null,
-    photoUrl: null, countdown: null, forceSeen: false};
+    photoUrl: null, countdown: null, forceSeen: false,
+    prepareEstimate: {lineart_sec: 7.0, plan_sec: 3.5, total_sec: 10.5},
+    prepareStartedAt: 0, prepareTick: null, serverPrepare: null,
+    previewEstSec: null, previewStrokes: null, etaAnchor: null, etaTick: null};
+  function formatDuration(sec) {
+    if (typeof sec !== 'number' || !Number.isFinite(sec) || sec < 0) return '--';
+    const total = Math.round(sec);
+    if (total <= 0) return '0초';
+    if (total < 60) return `약 ${total}초`;
+    const mins = Math.floor(total / 60);
+    const rem = total % 60;
+    return rem > 0 ? `약 ${mins}분 ${rem}초` : `약 ${mins}분`;
+  }
+  function renderPrepareProgress() {
+    let pct = 5.0;
+    let rem = state.prepareEstimate.total_sec;
+    let label = '선화 변환 중 (MFL-LD)';
+    const now = performance.now();
+    if (state.serverPrepare) {
+      const sp = state.serverPrepare;
+      const dt = Math.max(0, (now - sp.atMs) / 1000);
+      label = sp.stage_label || label;
+      const stageCap = sp.stage === 'PLAN' ? 98.0 : 82.0;
+      const estSpan = Math.max(1.0, sp.stage === 'PLAN' ? state.prepareEstimate.plan_sec : state.prepareEstimate.lineart_sec);
+      const rate = (sp.stage === 'PLAN' ? 18.0 : 72.0) / estSpan;
+      pct = Math.min(stageCap, Math.max(sp.percent, sp.percent + dt * rate * 0.7));
+      rem = Math.max(1.0, sp.remaining_sec - dt);
+    } else if (state.prepareStartedAt > 0) {
+      const elapsed = Math.max(0, (now - state.prepareStartedAt) / 1000);
+      const estL = Math.max(1.0, state.prepareEstimate.lineart_sec);
+      const estP = Math.max(0.5, state.prepareEstimate.plan_sec);
+      const estT = estL + estP;
+      if (elapsed <= estL) {
+        pct = 4.0 + 72.0 * (elapsed / estL);
+        label = '선화 변환 중 (MFL-LD)';
+      } else {
+        const over = (elapsed - estL) / estP;
+        pct = over <= 1.0 ? 76.0 + 19.0 * over : 95.0 + 3.0 * (1 - Math.exp(-(over - 1.0)));
+        label = '경로 추출 및 최적화 중';
+      }
+      rem = Math.max(1.0, estT - elapsed);
+    }
+    const pctRound = Math.round(Math.min(98.5, Math.max(1.0, pct)));
+    $('prepareProgressWrap').hidden = false;
+    $('prepareProgress').value = pctRound;
+    $('preparePercent').textContent = `${pctRound}% · ${label}`;
+    $('prepareEta').textContent = `예상 대기 ${formatDuration(rem)}`;
+    $('prepareStatus').textContent = `${label} (${pctRound}%, ${formatDuration(rem)} 남음)`;
+    $('resultLoading').hidden = false;
+    $('resultLoadingPercent').textContent = `${pctRound}%`;
+    $('resultLoadingText').textContent = `${label} · ${formatDuration(rem)} 남음`;
+  }
+  function startPrepareUi() {
+    state.prepareStartedAt = performance.now();
+    state.serverPrepare = null;
+    clearInterval(state.prepareTick);
+    renderPrepareProgress();
+    state.prepareTick = setInterval(renderPrepareProgress, 250);
+  }
+  function stopPrepareUi(completed) {
+    clearInterval(state.prepareTick);
+    state.prepareTick = null;
+    state.serverPrepare = null;
+    state.prepareStartedAt = 0;
+    if (completed) {
+      $('prepareProgress').value = 100;
+      $('preparePercent').textContent = '100% · 완료';
+      $('prepareEta').textContent = '완료';
+    }
+    $('prepareProgressWrap').hidden = true;
+    $('resultLoading').hidden = true;
+  }
+  function renderJobEta() {
+    const anchor = state.etaAnchor;
+    if (!anchor) return;
+    if (anchor.state === 'COMPLETED') {
+      $('jobEta').textContent = typeof anchor.totalSec === 'number'
+        ? `완료 · 전체 시간 ${formatDuration(anchor.totalSec)}`
+        : '완료';
+      return;
+    }
+    const elapsed = anchor.state === 'DRAWING' ? Math.max(0, (performance.now() - anchor.atMs) / 1000) : 0;
+    const rem = Math.max(0, anchor.remSec - Math.min(elapsed, 4.0));
+    const totalPart = typeof anchor.totalSec === 'number' ? ` · 전체 시간 ${formatDuration(anchor.totalSec)}` : '';
+    if (['PAUSED', 'PAUSING', 'FORCE_STOPPED'].includes(anchor.state)) {
+      $('jobEta').textContent = `일시정지 · 남은 시간 ${formatDuration(rem)}${totalPart}`;
+    } else if (anchor.state === 'STOPPED') {
+      $('jobEta').textContent = '중단됨';
+    } else {
+      $('jobEta').textContent = `남은 시간 ${formatDuration(rem)}${totalPart}`;
+    }
+  }
+  function setEtaAnchor(anchor) {
+    state.etaAnchor = anchor;
+    clearInterval(state.etaTick);
+    state.etaTick = null;
+    if (anchor) {
+      renderJobEta();
+      if (anchor.state === 'DRAWING') {
+        state.etaTick = setInterval(renderJobEta, 1000);
+      }
+    }
+  }
   let controlPending = null, controlSending = false;
   try { controlPending = JSON.parse(sessionStorage.getItem('a4PendingControl') || 'null'); } catch {}
   function persistControl() {
@@ -107,7 +209,10 @@
       $('resultImage').hidden = false;
       $('resultEmpty').hidden = true;
       state.readyRevision = revision;
-      $('prepareStatus').textContent = '그림과 문구의 경로를 확인하고 그리기를 눌러주세요.';
+      const etaHint = typeof state.previewEstSec === 'number'
+        ? ` (예상 그리기 시간 ${formatDuration(state.previewEstSec)}${state.previewStrokes ? `, ${state.previewStrokes}획` : ''})`
+        : '';
+      $('prepareStatus').textContent = `그림과 문구의 경로를 확인하고 그리기를 눌러주세요.${etaHint}`;
       updateButtons();
       if (!state.photo) restorePhoto(ticket, revision);
     } finally { clearTimeout(timer); }
@@ -138,30 +243,40 @@
     state.preparing = true;
     state.pending = false;
     state.ticket = '';
+    state.previewEstSec = null;
+    state.previewStrokes = null;
     state.requestId = newId();
     state.inflightRequestId = state.requestId;
     saveResume();
     updateButtons();
-    $('prepareStatus').textContent = '사진과 문구의 경로를 만들고 있습니다…';
+    startPrepareUi();
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(pollCurrent, 400);
     const form = new FormData();
     form.append('photo', state.photo, 'photo.png');
     form.append('text', text);
     form.append('detail', $('detailSelect').value);
+    form.append('method', 'mfl_ld');
     form.append('request_id', state.requestId);
     try {
       const result = await api('/api/kiosk/prepare', {method: 'POST', body: form}, 310000);
       if (revision !== state.revision) return;
       state.jobId = result.job_id;
       state.ticket = result.ticket;
+      state.previewEstSec = typeof result.estimated_total_sec === 'number' ? result.estimated_total_sec : null;
+      state.previewStrokes = typeof result.total_strokes === 'number' ? result.total_strokes : null;
       saveResume();
+      stopPrepareUi(true);
       await showPreview(state.ticket, revision);
       $('btnRetry').hidden = true;
     } catch (exception) {
       if (revision !== state.revision) return;
+      stopPrepareUi(false);
       error(exception.name === 'AbortError' ? '처리 응답이 지연됩니다. 현재 상태를 다시 확인하세요.' : exception.message);
       $('btnRetry').hidden = false;
     } finally {
       state.preparing = false;
+      if (state.prepareTick) stopPrepareUi(false);
       updateButtons();
       if ((state.pending || revision !== state.revision) && state.photo && !state.blocked) {
         state.pending = false;
@@ -326,6 +441,16 @@
         'X-Prepare-Request': state.preparing ? state.inflightRequestId : state.requestId,
       }});
       state.lastPhase = data.phase;
+      if (data.phase === 'PREPARING' && data.prepare_progress) {
+        state.serverPrepare = {...data.prepare_progress, atMs: performance.now()};
+        renderPrepareProgress();
+      } else if (!state.preparing && state.prepareTick) {
+        stopPrepareUi(false);
+      }
+      if (data.phase === 'PREVIEW' && typeof data.estimated_total_sec === 'number') {
+        state.previewEstSec = data.estimated_total_sec;
+        state.previewStrokes = typeof data.total_strokes === 'number' ? data.total_strokes : state.previewStrokes;
+      }
       const status = data.status;
       clearTimeout(state.expiry);
       if (status && (status.error_code || (['STOPPED', 'FORCE_STOPPED', 'RECOVERY_REQUIRED'].includes(status.state) && status.message))) {
@@ -344,25 +469,43 @@
         }
         state.forceSeen = status.state === 'FORCE_STOPPED' || status.error_code === 'EXTERNAL_FORCE_DETECTED';
         const hasLengthPct = typeof status.progress_percent === 'number';
-        $('jobProgress').hidden = false;
-        $('jobProgress').max = hasLengthPct ? 100 : status.total_strokes;
-        $('jobProgress').value = hasLengthPct ? status.progress_percent : status.completed_strokes;
-        const progressText = hasLengthPct
-          ? `${status.progress_percent.toFixed(1)}% (${status.completed_strokes}/${status.total_strokes}획)`
-          : `${status.completed_strokes}/${status.total_strokes}획`;
+        const pct = hasLengthPct
+          ? status.progress_percent
+          : (status.total_strokes > 0 ? (status.completed_strokes / status.total_strokes) * 100 : 0);
+        $('jobProgressWrap').hidden = false;
+        $('jobProgress').max = 100;
+        $('jobProgress').value = pct;
+        const progressText = `${pct.toFixed(1)}% (${status.completed_strokes}/${status.total_strokes}획)`;
+        $('jobPercent').textContent = progressText;
+        if (typeof status.estimated_remaining_sec === 'number') {
+          setEtaAnchor({
+            remSec: status.estimated_remaining_sec,
+            totalSec: typeof status.estimated_total_sec === 'number' ? status.estimated_total_sec : null,
+            atMs: performance.now(),
+            state: status.state,
+          });
+        } else {
+          setEtaAnchor(null);
+          $('jobEta').textContent = '';
+        }
         $('jobStatusText').textContent = `${labels[status.state] || status.state} · ${progressText}`
           + (status.message ? ` — ${status.message}` : '');
         state.expiry = setTimeout(() => {
           state.snapshot = null;
-          $('jobProgress').hidden = true;
+          setEtaAnchor(null);
+          $('jobProgressWrap').hidden = true;
           $('jobStatusText').textContent = '상태 정보가 오래되었습니다.';
           updateButtons();
         }, Math.max(0, status.valid_for_sec * 1000 - (performance.now() - startedAt)));
       } else {
         state.snapshot = null;
-        $('jobProgress').hidden = true;
-        const phases = {IDLE: '아직 시작한 작업이 없습니다.', PREPARING: '경로를 준비하고 있습니다.',
-          PREVIEW: '미리보기 준비 완료 · 그리기 승인 대기', PREPARE_FAILED: '사진·문구를 수정해 다시 입력하세요.',
+        setEtaAnchor(null);
+        $('jobProgressWrap').hidden = true;
+        const previewEta = typeof data.estimated_total_sec === 'number'
+          ? ` · 예상 그리기 시간 ${formatDuration(data.estimated_total_sec)}`
+          : '';
+        const phases = {IDLE: '아직 시작한 작업이 없습니다.', PREPARING: '선화 변환 및 경로를 준비하고 있습니다.',
+          PREVIEW: `미리보기 준비 완료${previewEta} · 그리기 승인 대기`, PREPARE_FAILED: '사진·문구를 수정해 다시 입력하세요.',
           SUBMITTING: '작업을 로봇에 전달하고 있습니다.', UNKNOWN_SUBMISSION: '로봇 상태를 확인하고 있습니다.',
           REGISTERED: '로봇 상태를 확인하고 있습니다.'};
         $('jobStatusText').textContent = phases[data.phase] || '대기 중 · 새 사진을 입력할 수 있습니다.';
@@ -376,19 +519,32 @@
       updateButtons();
     } catch (exception) {
       state.snapshot = null;
+      setEtaAnchor(null);
       clearTimeout(state.expiry);
-      $('jobProgress').hidden = true;
+      $('jobProgressWrap').hidden = true;
       $('jobStatusText').textContent = `상태 조회 대기 중: ${exception.message}`;
       updateButtons();
-    } finally { polling = false; pollTimer = setTimeout(pollCurrent, 1500); }
+    } finally {
+      polling = false;
+      const nextMs = (state.preparing || state.lastPhase === 'PREPARING') ? 500 : 1500;
+      pollTimer = setTimeout(pollCurrent, nextMs);
+    }
   }
   $('btnRetry').addEventListener('click', async () => {
     await pollCurrent();
     // 원격 처리 종료가 확인된 실패에서만 새 준비 요청을 만듭니다.
     if (state.lastPhase === 'PREPARE_FAILED' && state.photo && !state.blocked) preparePreview();
   });
-  api('/api/health').then(data => { $('engineStatus').textContent = data.engine === 'cv' ? 'OpenCV 선화' : 'DL 선화'; })
-    .catch(() => { $('engineStatus').textContent = '연결 확인 필요'; });
+  api('/api/health').then(data => {
+    $('engineStatus').textContent = 'MFL-LD 선화';
+    if (data.prepare_estimate) {
+      state.prepareEstimate = {
+        lineart_sec: Number(data.prepare_estimate.lineart_sec) || 7.0,
+        plan_sec: Number(data.prepare_estimate.plan_sec) || 3.5,
+        total_sec: Number(data.prepare_estimate.total_sec) || 10.5,
+      };
+    }
+  }).catch(() => { $('engineStatus').textContent = '연결 확인 필요'; });
   updateButtons();
   pollCurrent();
 })();

@@ -34,6 +34,7 @@ data/*.db.lock
 
 # 신규 작업의 사진·선화·계획은 런타임 데이터입니다. 기존 추적 자료는 보존합니다.
 data/jobs/
+data/logs/
 **/*.egg-info/
 ros2_ws/src/art_*/build/
 

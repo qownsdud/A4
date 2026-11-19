@@ -22,7 +22,7 @@ def paper_to_robot(point, *, origin, x_axis, y_axis, paper_size_mm=(210.0, 297.0
     )
 
 
-def drawing_pose(point, pen_id, settings):
+def drawing_pose(point, pen_id, settings, z_delta_mm=0.0):
     """종이 mm의 크기·색상을 바꾸지 않고 기준면 6축 pose로 변환합니다."""
     xyz = paper_to_robot(
         point,
@@ -32,5 +32,5 @@ def drawing_pose(point, pen_id, settings):
         paper_size_mm=(settings["paper_mm"]["width"], settings["paper_mm"]["height"]),
     )
     a, b, c = settings["plane_abc"]
-    z = a * xyz[0] + b * xyz[1] + c + settings["pen_slots"][pen_id]["z_offset_mm"]
+    z = a * xyz[0] + b * xyz[1] + c + settings["pen_slots"][pen_id]["z_offset_mm"] + float(z_delta_mm)
     return [xyz[0], xyz[1], z, *settings["orientation_deg"]]

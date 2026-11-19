@@ -54,10 +54,19 @@ def plan_to_standalone_strokes(plan_path: Path, out_path: Path) -> int:
     ]
     strokes = [stroke["points_mm"] for stroke in valid]
     pen_ids = [stroke.get("pen_id", "PEN_1") for stroke in valid]
+    z_deltas = [
+        [float(v) for v in stroke["z_deltas_mm"]]
+        if isinstance(stroke.get("z_deltas_mm"), list) and len(stroke["z_deltas_mm"]) == len(stroke["points_mm"])
+        else [0.0] * len(stroke["points_mm"])
+        for stroke in valid
+    ]
     if not strokes:
         raise ValueError("drawing_plan.json에 유효한 획이 없습니다.")
     out_path.write_text(
-        json.dumps({"strokes_px": strokes, "pen_ids": pen_ids, "source_plan": str(plan_path)}, ensure_ascii=False),
+        json.dumps(
+            {"strokes_px": strokes, "pen_ids": pen_ids, "z_deltas_mm": z_deltas, "source_plan": str(plan_path)},
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     return len(strokes)
