@@ -21,13 +21,13 @@ ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 
 # 슬라이더(0~100) 5단계 기준점: (level, canny_low, canny_high, face_canny_low, face_canny_high, face_bilateral_sigma, min_length_px)
 DENSITY_ANCHORS = (
-    (0.0,   85, 210, 42, 115, 75.0, 18.0),  # Minimal
-    (25.0,  65, 175, 34,  92, 60.0, 12.0),  # Clean
-    (50.0,  50, 150, 28,  75, 50.0,  8.0),  # Balanced
-    (75.0,  38, 115, 22,  60, 42.0,  6.0),  # Rich
-    (100.0, 28,  85, 15,  45, 35.0,  4.0),  # Very Rich
+    (0.0,   85, 210, 62, 150, 75.0, 16.0),  # Minimal
+    (25.0,  68, 175, 52, 130, 65.0, 11.0),  # Clean
+    (50.0,  55, 145, 45, 115, 55.0,  7.0),  # Balanced
+    (75.0,  42, 120, 36,  95, 45.0,  5.5),  # Rich
+    (100.0, 30,  90, 28,  75, 38.0,  4.0),  # Very Rich
 )
-DETAIL_LEVELS = {'low': 25.0, 'medium': 50.0, 'high': 75.0}
+DETAIL_LEVELS = {'low': 0.0, 'medium': 50.0, 'high': 100.0}
 # 외부 0~100 입력을 실제 유효 구간인 20~80 범위로 선형 매핑합니다.
 DETAIL_EFFECTIVE_MIN = 20.0
 DETAIL_EFFECTIVE_MAX = 80.0
@@ -184,9 +184,9 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
         _, min_length_px = resolve_cv_density_params(metadata.get('detail_level', detail_level))
         result = extract_vector_paths(
             str(path),
-            epsilon=1.5,
+            epsilon=0.9,
             min_length_px=min_length_px,
-            bridge_gap_px=4.5,
+            bridge_gap_px=4.0,
             preserve_thick_contours=False,
             smooth_iterations=0,
         )
@@ -204,7 +204,8 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
         else:
             width,height=result.width,result.height
         plan = build_plan(payload, width, height, job_id=job_id, seed=seed,
-                          paper_size_mm=placement['size'], margin_mm=placement['margin'],artwork_box_mm=box)
+                          paper_size_mm=placement['size'], margin_mm=placement['margin'],
+                          artwork_box_mm=box, max_stroke_mm=55.0)
         # 앞단 픽셀 단순화(eps=1.5) 결과를 유지하기 위해 mm 재단순화는 비활성화
         plan = optimize_plan(plan, backend='opencv', simplify_tolerance_mm=0.0, max_strokes=None, curve_step_mm=0)
         plan['strokes'].extend(generate_strokes(text, origin=placement['text_origin'], bounds_mm=placement['text_bounds'],paper_size_mm=placement['size']))

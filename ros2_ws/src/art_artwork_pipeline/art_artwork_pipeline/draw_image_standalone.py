@@ -4,7 +4,7 @@
 기능 요약:
 1. 입력 이미지(PNG/JPG) -> 세선화(Zhang-Suen) + 경로 추출 -> 벡터 획(strokes) 생성
    (이미 변환된 *_strokes.json 입력도 그대로 지원)
-2. ~/.ros/plane_calibration.json의 9점 영역 내 안전 직사각형에 비율 유지 중앙 배치
+2. A4/config/plane_calibration.json의 9점 영역 내 안전 직사각형에 비율 유지 중앙 배치
 3. 전체 획을 3개 펜에 균등 분배
 4. 기준 막대로 바닥 높이(Z) 포스 접촉 측정 후, 펜 1·2·3이 순서대로 나눠 그림
 
@@ -73,7 +73,7 @@ BASELINE_SAMPLES = 10
 CONTACT_SIGN = +1
 
 # 9점 빈 그리퍼 자동 재캘리브레이션 파라미터
-AUTO_CALIBRATE_9PT = True        # True: 시작 시 닫힌 빈 그리퍼로 9점 Z를 새로 재서 기울기(a, b) 갱신
+AUTO_CALIBRATE_9PT = False        # True: 시작 시 닫힌 빈 그리퍼로 9점 Z를 새로 재서 기울기(a, b) 갱신
 CALIBRATE_INSET_MM = 40.0        # 무게추 회피를 위해 모서리/변 점을 중심 쪽으로 당길 거리 (mm)
 GRIPPER_PROBE_START_OFFSET_Z = 15.0  # 첫 점 탐색 시작 높이 오프셋 (+mm)
 GRIPPER_PROBE_MAX_TRAVEL_MM = 30.0   # 빈 그리퍼 최대 하강 탐색 거리 (mm)
@@ -102,9 +102,14 @@ def _a4_root() -> str:
     return os.getcwd()
 
 
-STICK_FILE = os.path.expanduser("~/.ros/stick_slot.json")
-PENS_FILE = os.path.expanduser("~/.ros/pen_slots.json")
-CALIBRATION_FILE = os.path.expanduser("~/.ros/plane_calibration.json")
+def _config_file(name: str) -> str:
+    config_dir = os.environ.get("ART_CONFIG_DIR", os.path.join(_a4_root(), "config"))
+    return os.path.join(config_dir, name)
+
+
+STICK_FILE = _config_file("stick_slot.json")
+PENS_FILE = _config_file("pen_slots.json")
+CALIBRATION_FILE = _config_file("plane_calibration.json")
 PREVIEW_DIR = os.environ.get("ART_DRAWING_PREVIEW_DIR", os.path.join(_a4_root(), "data", "drawing_previews"))
 DEFAULT_INPUT_PATH = os.path.join(_a4_root(), "data", "jobs", "latest_strokes.json")
 
