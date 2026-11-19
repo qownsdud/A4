@@ -134,7 +134,8 @@ def test_admin_auto_target_same_origin_pause_resume_cancel(env):
 def test_invalid_text_image_and_plan_tampering(env):
     engine,port=env
     async def check(c):
-        assert (await c.post('/api/kiosk/prepare',files={'photo':('p.png',photo())},data={'text':'한글'})).status_code==422
+        assert (await c.post('/api/kiosk/prepare',files={'photo':('p.png',photo())},data={'text':'한글\n오류'})).status_code==422
+        assert (await c.post('/api/kiosk/prepare',files={'photo':('p.png',photo())},data={'text':'안녕! Hi ★'})).status_code==200
         assert (await c.post('/api/kiosk/prepare',files={'photo':('p.png',b'bad')})).status_code==400
         p=await prepare(c);d=workflow.job_directory(p['job_id']);plan=d/'drawing_plan.json';plan.write_text(plan.read_text()+' ')
         assert (await draw(c,p)).status_code==409 and port.creates==0

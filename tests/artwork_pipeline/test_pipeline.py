@@ -65,8 +65,10 @@ def test_colors_and_layers_preserved():
     assert set(before)=={(s['pen_id'],s['layer']) for s in result['strokes']}
     assert result['grid']==plan['grid']
     assert validate_plan(result)
+    mixed = generate_strokes('안녕! Hi ★')
+    assert len(mixed) > 0 and all(s['layer'] == 'calligraphy' for s in mixed)
     with pytest.raises(ValueError):
-        generate_strokes('안녕')
+        generate_strokes('안녕\n줄바꿈')
 
 def test_path_isolation_cancellation_and_failed_publication(tmp_path):
     first=lineart(tmp_path,'FIRST')
@@ -81,8 +83,10 @@ def test_path_isolation_cancellation_and_failed_publication(tmp_path):
     assert not (first/'drawing_plan.json').exists()
     assert not (first/'.processing').exists()
     with pytest.raises(ValueError):
-        prepare_artwork('FIRST',stage='PLAN',input_path=str(first/'lineart.png'),root=tmp_path,text='한글')
+        prepare_artwork('FIRST',stage='PLAN',input_path=str(first/'lineart.png'),root=tmp_path,text='한글\n오류')
     assert not (first/'drawing_plan.json').exists()
+    out = prepare_artwork('FIRST',stage='PLAN',input_path=str(first/'lineart.png'),root=tmp_path,text='한글! ★')
+    assert Path(out['plan_path']).is_file()
 
 def test_kiosk_bridge_real_pipeline_manager_approval(monkeypatch,tmp_path):
     monkeypatch.setenv('ART_JOB_PLAN_ROOT',str(tmp_path))

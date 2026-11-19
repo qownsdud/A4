@@ -40,8 +40,10 @@ class PenController:
         self.runner.move([approach], p_vel, p_acc)
 
     def select(self, pen_id):
-        if pen_id not in ("PEN_1", "PEN_2", "PEN_3"):
+        if pen_id not in ("PEN_1", "PEN_2", "PEN_3", "PEN_4"):
             raise ValueError("지원하지 않는 논리 펜입니다.")
+        if pen_id not in self.adapter.settings["pen_slots"]:
+            raise ValueError(f"펜 슬롯이 설정되지 않았습니다: {pen_id}")
         self.adapter.require_ready()
         if self.runner is None:
             raise RuntimeError("실행 모션 게이트가 필요합니다.")

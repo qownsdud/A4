@@ -128,7 +128,7 @@ def load_plan(
         if not isinstance(pen_id, str) or not 1 <= len(pen_id) <= 64:
             raise PlanError("PLAN_PEN_ID_INVALID")
         if schema == "0.2":
-            if pen_id not in ("PEN_1", "PEN_2", "PEN_3"):
+            if pen_id not in ("PEN_1", "PEN_2", "PEN_3", "PEN_4"):
                 raise PlanError("PLAN_PEN_ID_INVALID")
             if "execution_order" in stroke and (type(stroke["execution_order"]) is not int or stroke["execution_order"] != expected - 1):
                 raise PlanError("PLAN_STROKE_ORDER_INVALID")

@@ -2,17 +2,27 @@
   const $ = (id) => document.getElementById(id);
   const labels = {QUEUED: '작업 대기', DISPATCHING: '실행 시작 확인 중', DRAWING: '그리는 중',
     PAUSING: '일시정지 확인 중', PAUSED: '일시정지 확인됨', RESUMING: '멈춘 위치에서 재개 확인 중', STOPPING: '중단 확인 중',
-    STOPPED: '중단 확인됨', COMPLETED: '작업 완료 확인됨', RECOVERY_REQUIRED: '실제 상태 확인 필요'};
+    FORCE_STOPPED: '외력 또는 보호 정지 감지', STOPPED: '중단 확인됨', COMPLETED: '작업 완료 확인됨', RECOVERY_REQUIRED: '실제 상태 확인 필요'};
   const state = {photo: null, stream: null, mirrored: true, revision: 0, readyRevision: -1,
     ticket: '', jobId: '', requestId: '', inflightRequestId: '', preparing: false, submitting: false, pending: false,
     blocked: false, lastPhase: 'IDLE', autoTimer: null, snapshot: null, expiry: null, resultUrl: null,
-    photoUrl: null, countdown: null};
+    photoUrl: null, countdown: null, forceSeen: false};
+  let controlPending = null, controlSending = false;
+  try { controlPending = JSON.parse(sessionStorage.getItem('a4PendingControl') || 'null'); } catch {}
+  function persistControl() {
+    try {
+      if (controlPending) sessionStorage.setItem('a4PendingControl', JSON.stringify(controlPending));
+      else sessionStorage.removeItem('a4PendingControl');
+    } catch {}
+  }
   let resume = null;
   try { resume = JSON.parse(sessionStorage.getItem('a4CurrentPreview') || 'null'); } catch { /* 저장소 사용 불가 */ }
   if (resume) {
     state.ticket = resume.ticket || ''; state.requestId = resume.request_id || ''; state.jobId = resume.job_id || '';
     $('calligraphyText').value = resume.text || '';
-    if (resume.detail) $('detailSelect').value = resume.detail;
+    if (resume.detail !== undefined && resume.detail !== '') {
+      $('detailSelect').value = ({low: 0, medium: 50, high: 100})[resume.detail] ?? resume.detail;
+    }
   }
 
   function saveResume() {
@@ -30,6 +40,21 @@
     }
     $('btnCaptureNow').disabled = !state.stream || state.submitting || Boolean(state.countdown);
     $('btnCaptureTimer').disabled = $('btnCaptureNow').disabled;
+    const snapshot = state.snapshot;
+    const previousTerminal = snapshot && snapshot.job_id !== state.jobId && ['COMPLETED', 'STOPPED'].includes(snapshot.state);
+    const force = state.forceSeen || (snapshot && (snapshot.state === 'FORCE_STOPPED' || snapshot.error_code === 'EXTERNAL_FORCE_DETECTED'));
+    $('forceNotice').hidden = !force;
+    for (const [id, cmd, allowed] of [
+      ['btnPause', 'PAUSE', ['DRAWING']],
+      ['btnResume', 'RESUME', ['PAUSED', 'FORCE_STOPPED', 'RECOVERY_REQUIRED']],
+      ['btnRestart', 'CANCEL', ['QUEUED', 'DISPATCHING', 'DRAWING', 'PAUSING', 'PAUSED', 'RESUMING', 'FORCE_STOPPED', 'RECOVERY_REQUIRED']],
+    ]) {
+      const retry = controlPending && controlPending.job_id === snapshot?.job_id && controlPending.command === cmd;
+      const supersede = cmd === 'CANCEL' && controlPending?.accepted && ['PAUSE', 'RESUME'].includes(controlPending.command);
+      $(id).disabled = !snapshot || previousTerminal || controlSending
+        || (force && !['RESUME', 'CANCEL'].includes(cmd))
+        || (controlPending ? !(retry || supersede) : !allowed.includes(snapshot.state));
+    }
   }
   function newId() {
     const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -108,7 +133,7 @@
     if (!state.photo || state.preparing || state.blocked || state.submitting) return;
     const revision = state.revision;
     const text = $('calligraphyText').value.trim();
-    if (!/^[A-Za-z ]*$/.test(text)) { error('영문 대소문자와 공백만 입력해 주세요.'); return; }
+    if (/[\x00-\x1f]/.test(text)) { error('제어 문자나 줄바꿈은 입력할 수 없습니다.'); return; }
     error('');
     state.preparing = true;
     state.pending = false;
@@ -162,7 +187,13 @@
     if (file) setPhoto(file);
   });
   $('calligraphyText').addEventListener('input', invalidate);
-  $('detailSelect').addEventListener('change', invalidate);
+  function updateDetail() {
+    const level = Number($('detailSelect').value);
+    $('detailValue').textContent = `${level} · ${level < 34 ? '간략하게' : level > 66 ? '세밀하게' : '표준'}`;
+  }
+  $('detailSelect').addEventListener('input', () => { updateDetail(); invalidate(); });
+  $('detailSelect').addEventListener('change', () => { updateDetail(); invalidate(); });
+  updateDetail();
   function mirror() {
     $('camVideo').classList.toggle('mirrored', state.mirrored);
     $('btnMirror').textContent = state.mirrored ? '좌우 반전 ON' : '좌우 반전 OFF';
@@ -249,6 +280,40 @@
   $('btnDraw').addEventListener('click', () => {
     if (!$('btnDraw').disabled) submitDraw();
   });
+  async function sendControl(cmd) {
+    const snapshot = state.snapshot;
+    if (!snapshot || controlSending) return;
+    if (!controlPending || controlPending.job_id !== snapshot.job_id || controlPending.command !== cmd) {
+      controlPending = {job_id: snapshot.job_id, command: cmd, request_id: newId(), accepted: false};
+      persistControl();
+    }
+    controlSending = true;
+    updateButtons();
+    $('controlNotice').textContent = `${cmd} 요청을 전송하고 있습니다…`;
+    try {
+      await api('/api/kiosk/current/control', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          expected_job_id: snapshot.job_id,
+          command: cmd,
+          request_id: controlPending.request_id,
+        }),
+      });
+      controlPending.accepted = true;
+      persistControl();
+      $('controlNotice').textContent = '요청이 수락되었습니다. 실제 로봇 상태를 확인 중입니다.';
+    } catch (exception) {
+      $('controlNotice').textContent = `제어 요청 오류: ${exception.message}`;
+    } finally {
+      controlSending = false;
+      updateButtons();
+      pollCurrent();
+    }
+  }
+  $('btnPause').addEventListener('click', () => sendControl('PAUSE'));
+  $('btnResume').addEventListener('click', () => sendControl('RESUME'));
+  $('btnRestart').addEventListener('click', () => sendControl('CANCEL'));
 
   let pollTimer = null, polling = false;
   async function pollCurrent() {
@@ -263,12 +328,30 @@
       state.lastPhase = data.phase;
       const status = data.status;
       clearTimeout(state.expiry);
-      if (status && !status.stale && status.state_confirmed) {
+      if (status && (status.error_code || (['STOPPED', 'FORCE_STOPPED', 'RECOVERY_REQUIRED'].includes(status.state) && status.message))) {
+        const detail = [status.error_code, status.message].filter(Boolean).join(': ');
+        $('jobErrorLog').textContent = `[${labels[status.state] || status.state}] ${detail || '오류 세부 내용 없음'}`;
+        $('jobErrorLog').hidden = false;
+      } else {
+        $('jobErrorLog').hidden = true;
+      }
+      if (status && !status.stale && (status.state_confirmed || ['FORCE_STOPPED', 'RECOVERY_REQUIRED'].includes(status.state))) {
         state.snapshot = status;
+        if (controlPending && controlPending.job_id === status.job_id && ['PAUSED', 'DRAWING', 'STOPPED', 'COMPLETED'].includes(status.state)) {
+          controlPending = null;
+          persistControl();
+          $('controlNotice').textContent = '';
+        }
+        state.forceSeen = status.state === 'FORCE_STOPPED' || status.error_code === 'EXTERNAL_FORCE_DETECTED';
+        const hasLengthPct = typeof status.progress_percent === 'number';
         $('jobProgress').hidden = false;
-        $('jobProgress').max = status.total_strokes;
-        $('jobProgress').value = status.completed_strokes;
-        $('jobStatusText').textContent = `${labels[status.state] || status.state} · ${status.completed_strokes}/${status.total_strokes}획`;
+        $('jobProgress').max = hasLengthPct ? 100 : status.total_strokes;
+        $('jobProgress').value = hasLengthPct ? status.progress_percent : status.completed_strokes;
+        const progressText = hasLengthPct
+          ? `${status.progress_percent.toFixed(1)}% (${status.completed_strokes}/${status.total_strokes}획)`
+          : `${status.completed_strokes}/${status.total_strokes}획`;
+        $('jobStatusText').textContent = `${labels[status.state] || status.state} · ${progressText}`
+          + (status.message ? ` — ${status.message}` : '');
         state.expiry = setTimeout(() => {
           state.snapshot = null;
           $('jobProgress').hidden = true;
@@ -279,7 +362,9 @@
         state.snapshot = null;
         $('jobProgress').hidden = true;
         const phases = {IDLE: '아직 시작한 작업이 없습니다.', PREPARING: '경로를 준비하고 있습니다.',
-          PREVIEW: '미리보기 준비 완료 · 그리기 승인 대기', PREPARE_FAILED: '사진·문구를 수정해 다시 입력하세요.'};
+          PREVIEW: '미리보기 준비 완료 · 그리기 승인 대기', PREPARE_FAILED: '사진·문구를 수정해 다시 입력하세요.',
+          SUBMITTING: '작업을 로봇에 전달하고 있습니다.', UNKNOWN_SUBMISSION: '로봇 상태를 확인하고 있습니다.',
+          REGISTERED: '로봇 상태를 확인하고 있습니다.'};
         $('jobStatusText').textContent = phases[data.phase] || '대기 중 · 새 사진을 입력할 수 있습니다.';
       }
       if (data.phase === 'PREVIEW' && data.ticket && !state.preparing && !state.submitting

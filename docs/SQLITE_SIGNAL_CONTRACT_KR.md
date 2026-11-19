@@ -30,7 +30,7 @@ uint64 seq                 # 단조 증가 시퀀스 번호 (1부터 시작, 재
 string event_type          # 결정 이벤트 종류 (4장 목록 참조)
 string job_id              # 작업 고유 ID
 string state               # 결정 직후 작업 상태
-uint32 completed_strokes   # 펜 이격까지 확인된 완료 획 수
+uint32 completed_strokes   # 완료 획 수
 uint32 total_strokes       # 전체 획 수
 uint32 resume_stroke_id    # 외력 정지·복구 시 재개 기준 획 번호 (해당 없으면 0)
 string current_pen         # 현재 펜 (PEN_1 | PEN_2 | PEN_3, 미지정 시 빈 문자열)
@@ -54,7 +54,7 @@ float64 occurred_at        # 이벤트 발생 Unix epoch 시각 (초)
 - `RESUMING`: 재개 확인 대기 중
 - `STOPPING`: 중단 및 안전 복귀 진행 중
 - `STOPPED`: 중단 또는 오류로 종료됨 (다음 작업 가능)
-- `COMPLETED`: 모든 획 완료 및 최종 펜 이격 확인 완료
+- `COMPLETED`: 모든 획 완료
 - `RECOVERY_REQUIRED`: 외력·파지 해제·재시작 등으로 물리적 복구 확인 필요
 
 ## 4. `event_type` 상세 목록
@@ -78,7 +78,7 @@ float64 occurred_at        # 이벤트 발생 Unix epoch 시각 (초)
   - 주요 필드: `job_id`, `state`, `message`
 
 - **`STROKE_COMPLETED` (획 완료 신호)**
-  - 발생 시점: 실행기로부터 `STROKE_COMPLETED` 및 `pen_up_confirmed=true`를 확인해 완료 획 수가 1 증가했을 때
+  - 발생 시점: 실행기로부터 `STROKE_COMPLETED`를 수신해 완료 획 수가 1 증가했을 때
   - 주요 필드: `job_id`, `state`, `completed_strokes`, `total_strokes`, `current_pen`
 
 - **`CONTROL_REQUESTED` (제어 요청 접수 신호)**

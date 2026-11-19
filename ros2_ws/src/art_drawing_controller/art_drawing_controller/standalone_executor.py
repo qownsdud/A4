@@ -47,15 +47,17 @@ def _env_flag(name: str, default: bool = False) -> bool:
 def plan_to_standalone_strokes(plan_path: Path, out_path: Path) -> int:
     """drawing_plan.json의 points_mm를 draw_image_standalone.py용 strokes_px JSON으로 변환합니다."""
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    strokes = [
-        stroke["points_mm"]
+    valid = [
+        stroke
         for stroke in plan.get("strokes", [])
         if len(stroke.get("points_mm", [])) >= 2
     ]
+    strokes = [stroke["points_mm"] for stroke in valid]
+    pen_ids = [stroke.get("pen_id", "PEN_1") for stroke in valid]
     if not strokes:
         raise ValueError("drawing_plan.json에 유효한 획이 없습니다.")
     out_path.write_text(
-        json.dumps({"strokes_px": strokes, "source_plan": str(plan_path)}, ensure_ascii=False),
+        json.dumps({"strokes_px": strokes, "pen_ids": pen_ids, "source_plan": str(plan_path)}, ensure_ascii=False),
         encoding="utf-8",
     )
     return len(strokes)
@@ -139,12 +141,11 @@ class StandaloneDrawingControllerNode(Node):
             py_cmd.append("--skip-cal")
         return py_cmd
 
-    def _publish_feedback(self, goal_handle, *, event: str, stroke_id: int = 0, pen_id: str = "", pen_up_confirmed: bool = False, message: str = "") -> None:
+    def _publish_feedback(self, goal_handle, *, event: str, stroke_id: int = 0, pen_id: str = "", message: str = "") -> None:
         fb = ExecuteDrawing.Feedback()
         fb.stroke_id = int(stroke_id)
         fb.event = event
         fb.pen_id = pen_id
-        fb.pen_up_confirmed = bool(pen_up_confirmed)
         fb.message = message
         goal_handle.publish_feedback(fb)
 
@@ -164,7 +165,6 @@ class StandaloneDrawingControllerNode(Node):
                 result.success = False
                 result.final_state = "FAILED"
                 result.completed_strokes = 0
-                result.pen_up_confirmed = True
                 result.error_code = "SCRIPT_NOT_FOUND"
                 result.message = f"draw_image_standalone.py를 찾을 수 없습니다: {script_path}"
                 return result
@@ -232,7 +232,6 @@ class StandaloneDrawingControllerNode(Node):
                                 event="STROKE_COMPLETED",
                                 stroke_id=reported_strokes,
                                 pen_id=pen_id,
-                                pen_up_confirmed=True,
                                 message=f"{pen_label} 진행 {reported_strokes}/{total_strokes}획",
                             )
 
@@ -245,7 +244,6 @@ class StandaloneDrawingControllerNode(Node):
                 result.success = False
                 result.final_state = "INTERRUPTED_SAFE"
                 result.completed_strokes = reported_strokes
-                result.pen_up_confirmed = True
                 result.error_code = "CANCELED"
                 result.message = "사용자 요청으로 안전 복귀 후 중단했습니다."
                 return result
@@ -258,14 +256,12 @@ class StandaloneDrawingControllerNode(Node):
                         event="STROKE_COMPLETED",
                         stroke_id=reported_strokes,
                         pen_id=last_pen.replace("펜 ", "PEN_") if last_pen else "PEN_3",
-                        pen_up_confirmed=True,
                         message=f"획 {reported_strokes}/{total_strokes} 완료",
                     )
                 goal_handle.succeed()
                 result.success = True
                 result.final_state = "COMPLETED"
                 result.completed_strokes = total_strokes
-                result.pen_up_confirmed = True
                 result.error_code = ""
                 result.message = "draw_image_standalone.py 그리기를 완료했습니다."
                 return result
@@ -275,7 +271,6 @@ class StandaloneDrawingControllerNode(Node):
             result.success = False
             result.final_state = "FAILED"
             result.completed_strokes = reported_strokes
-            result.pen_up_confirmed = True
             result.error_code = "STANDALONE_DRAW_FAILED"
             result.message = f"로봇 그리기 오류 (code={rc}): {tail[:200]}"
             return result
@@ -284,7 +279,6 @@ class StandaloneDrawingControllerNode(Node):
             result.success = False
             result.final_state = "FAILED"
             result.completed_strokes = 0
-            result.pen_up_confirmed = False
             result.error_code = type(exc).__name__
             result.message = str(exc)
             return result

@@ -75,9 +75,6 @@ class MockDoosanAdapter:
         self.pose[2] = float(self.settings["travel_z_mm"])
         return True
 
-    def pen_up_confirmed(self):
-        return True
-
 
 def test_job_manager_and_drawing_controller_pause_resume_complete(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ART_JOB_PLAN_ROOT", str(tmp_path))

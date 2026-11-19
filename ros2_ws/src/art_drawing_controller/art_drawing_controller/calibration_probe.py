@@ -199,10 +199,12 @@ def run_pre_drawing_calibration(adapter, runner, pens):
             float(stick_pose[5]) + float(rz_offset),
         ]
         pens.pick_from_slot(stick_grip_pose)
-        try:
-            contact_pose = measure_floor_height_with_stick(adapter, runner)
-        finally:
-            pens.return_to_slot(stick_grip_pose)
+        adapter.held_stick_pose = stick_grip_pose
+        contact_pose = measure_floor_height_with_stick(adapter, runner)
+        pens.return_to_slot(
+            stick_grip_pose,
+            on_released=lambda: setattr(adapter, "held_stick_pose", None),
+        )
         bx, by, contact_z = contact_pose[0], contact_pose[1], contact_pose[2]
         settings["plane_abc"] = [
             slope_a,

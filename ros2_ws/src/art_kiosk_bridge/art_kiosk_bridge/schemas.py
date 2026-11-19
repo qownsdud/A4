@@ -63,7 +63,7 @@ class PrepareArtworkBody(BaseModel):
     input_path: str = Field(min_length=1,max_length=4096)
     method: Literal['cv','dl','mfl_ld'] = 'cv'
     paper: Literal['a4','a4_landscape_margin','postcard','square'] = 'a4'
-    detail: Literal['high','medium','low'] = 'medium'
+    detail: str = Field(default='medium', pattern=r'^(?:high|medium|low|100|[0-9]{1,2})$')
     seed: int = 42
     text: str = Field(default='',max_length=120)
     class Config:

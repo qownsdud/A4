@@ -4,8 +4,9 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from art_interfaces.srv import ControlDrawing
 
 class LiveControlServer:
-    def __init__(self, node):
+    def __init__(self, node, on_recover=None):
         self.session = None
+        self.on_recover = on_recover
         self.lock = threading.RLock()
         self.service = node.create_service(ControlDrawing, '/art/control_drawing', self.control,
                                            callback_group=ReentrantCallbackGroup())
@@ -33,6 +34,10 @@ class LiveControlServer:
     def control(self, request, response):
         with self.lock:
             session = self.session
+        if request.command == 'RECOVER' and session is None and self.on_recover is not None:
+            response.accepted, response.state, response.error_code = self.on_recover()
+            response.message = '도구 반납 및 홈 복귀 처리 결과입니다.'
+            return response
         if session is None or session.job_id != request.job_id:
             response.accepted=False
             response.state='UNKNOWN'

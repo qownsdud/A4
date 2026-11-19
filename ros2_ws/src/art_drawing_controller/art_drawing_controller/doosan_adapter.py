@@ -1,19 +1,51 @@
 """참고 드로잉 코드의 이동 기능만 ROS 서비스로 연결합니다. 이미지 처리·접촉 탐색은 없습니다."""
 
 import math
+import threading
 import time
 from .equipment_settings import validate_equipment, profile_unchanged
 from .motion_safety import validate_pose
 from .doosan_motion_control import DoosanMotionControl
 
 
+class DriverAlarmLatch:
+    """제어기 오류 알람을 스레드 안전하게 래치합니다."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.generation = 0
+        self.reason = ""
+
+    def receive(self, message):
+        if getattr(message, "level", 0) < 3 and not (
+            getattr(message, "group", 0) == 5 and getattr(message, "level", 0) >= 2
+        ):
+            return
+        with self._lock:
+            self.generation += 1
+            self.reason = (
+                f"제어기 알람 level={message.level}, group={message.group}, "
+                f"code={message.code}: {message.msg1} {message.msg2} {message.msg3}"
+            )[:400]
+
+    def snapshot(self):
+        with self._lock:
+            return self.generation, self.reason
+
+    def clear(self):
+        with self._lock:
+            self.reason = ""
+
+
 class DoosanAdapter:
     def __init__(self, node=None, settings=None):
         self.node, self.settings = node, settings
         self.held_pen = None
+        self.held_stick_pose = None
         self._target = None
         self._motion_kind = "task"
         self.control = None
+        self.alarm = DriverAlarmLatch()
         if node is None or settings is None:
             return
         validate_equipment(settings)
@@ -58,10 +90,28 @@ class DoosanAdapter:
             self.control.clients[key] = node.create_client(
                 typ, prefix + suffix, callback_group=ReentrantCallbackGroup()
             )
+        try:
+            from dsr_msgs2.msg import RobotError
 
-    def require_ready(self):
+            node.create_subscription(
+                RobotError,
+                f"/{settings['robot_id']}/error",
+                self.alarm.receive,
+                100,
+                callback_group=ReentrantCallbackGroup(),
+            )
+        except ImportError:
+            pass
+
+    def _require_initialized(self):
         if self.control is None or self.settings is None:
             raise RuntimeError("실물 프로필·M0609·RG2 준비 검증이 필요합니다.")
+        _, alarm_reason = self.alarm.snapshot()
+        if alarm_reason:
+            raise RuntimeError(alarm_reason)
+
+    def require_ready(self):
+        self._require_initialized()
         if not self.equipment_ready():
             raise RuntimeError("장비 프로필·Tool·TCP·연결 상태를 확인할 수 없습니다.")
 
@@ -73,6 +123,8 @@ class DoosanAdapter:
 
     def preflight(self):
         self.require_ready()
+        if self.held_pen is not None or self.held_stick_pose is not None:
+            self.return_pen_and_home()
         pose = self.control.stationary(time.monotonic() + 3.0)
         self.validate(pose)
         io = self.settings["gripper"]
@@ -136,17 +188,24 @@ class DoosanAdapter:
             sync_type=1,
         )
 
-    def read_tool_force_z(self, ref=0):
-        self.require_ready()
+    def read_tool_force(self, ref=0):
+        if self.control is None:
+            raise RuntimeError("제어기가 초기화되지 않았습니다.")
+        _, alarm_reason = self.alarm.snapshot()
+        if alarm_reason:
+            raise RuntimeError(alarm_reason)
         deadline = time.monotonic() + 2.0
         res = self.control.call("force", deadline, ref=int(ref))
-        val = float(res.tool_force[2])
-        if not math.isfinite(val):
-            raise RuntimeError("Fz 센서 측정값이 유효하지 않습니다.")
-        return val
+        vals = [float(v) for v in res.tool_force[:6]]
+        if len(vals) != 6 or not all(math.isfinite(v) for v in vals):
+            raise RuntimeError("6축 힘 센서 측정값이 유효하지 않습니다.")
+        return vals
+
+    def read_tool_force_z(self, ref=0):
+        return self.read_tool_force(ref=ref)[2]
 
     def begin_motion(self, poses, velocity, acceleration=None, mod=0):
-        self.require_ready()
+        self._require_initialized()
         if mod == 0:
             poses = [self.validate(p) for p in poses]
         else:
@@ -188,26 +247,16 @@ class DoosanAdapter:
             )
 
     def motion_complete(self):
-        if self._motion_kind in ("joint", "rel"):
-            deadline = time.monotonic() + 3.0
-            _, vel = self.control.observed(deadline)
-            status = self.control.call("motion", deadline).status
-            return status == 0 and all(abs(v) <= 0.01 for v in vel)
-        if self._target is None:
-            return False
         deadline = time.monotonic() + 3.0
-        pose, vel = self.control.observed(deadline)
         status = self.control.call("motion", deadline).status
-        return (
-            status == 0
-            and math.dist(pose[:3], self._target[:3]) <= 0.2
-            and max(abs(a - b) for a, b in zip(pose[3:], self._target[3:])) <= 0.2
-            and all(abs(v) <= 0.01 for v in vel)
-        )
+        return status == 0
 
     def at_pose(self, target):
-        """같은 목표로 이동을 생략할 때도 실제 정지와 자세를 관측합니다."""
-        pose = self.control.stationary(time.monotonic() + 3.0)
+        """같은 목표로 이동을 생략할 때 현재 자세를 1회 관측해 비교합니다."""
+        try:
+            pose = self.current_pose()
+        except RuntimeError:
+            return False
         return self.control.same_pose(pose, target)
 
     def current_pose(self):
@@ -237,39 +286,74 @@ class DoosanAdapter:
         pose = self.current_pose()
         self.validate(pose)
         if pose[2] >= self.settings["travel_z_mm"] - 0.2:
-            return self.pen_up_confirmed()
+            return True
         target = list(pose)
         target[2] = self.settings["travel_z_mm"]
         self.begin_motion([target], self.settings["pick_velocity"])
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
             if self.motion_complete():
-                return self.pen_up_confirmed()
+                return True
             time.sleep(0.02)
         return False
 
-    def pen_up_confirmed(self):
-        pose, velocity = self.control.observed(time.monotonic() + 3.0)
-        if any(abs(v) > 0.01 for v in velocity):
-            return False
-        io = self.settings["gripper"]
-        has_inputs = io.get("grip_input") is not None and io.get("release_input") is not None
-        if self.held_pen is None:
-            if not has_inputs:
-                return pose[2] >= self.settings["travel_z_mm"] - 0.2
-            return (
-                pose[2] >= self.settings["travel_z_mm"] - 0.2
-                and self.read_input(io["release_input"]) == 1
-                and self.read_input(io["grip_input"]) == 0
+    def return_pen_and_home(self):
+        """작업 중단/예외 이후 들고 있는 펜을 슬롯에 반납하고 홈 위치로 복귀합니다."""
+        from .pen_controller import PenController
+
+        self.require_ready()
+        adapter = self
+
+        class _RecoverySession:
+            state = "RUNNING"
+            condition = threading.RLock()
+
+        class _RecoveryRunner:
+            session = _RecoverySession()
+
+            @staticmethod
+            def wait_running():
+                return True
+
+            @staticmethod
+            def check_cancel():
+                return None
+
+            @staticmethod
+            def _wait_done(timeout_sec=30.0):
+                deadline = time.monotonic() + timeout_sec
+                while time.monotonic() < deadline:
+                    if adapter.motion_complete():
+                        return
+                    time.sleep(0.03)
+                raise RuntimeError("원상복구 모션 완료 시간 초과")
+
+            def move(self, poses, velocity, acceleration=None):
+                adapter.begin_motion(poses, velocity, acceleration)
+                self._wait_done()
+
+            def move_joint(self, joints, velocity=None, acceleration=None):
+                adapter.move_joint(joints, velocity, acceleration)
+                self._wait_done()
+
+        runner = _RecoveryRunner()
+        pose = self.current_pose()
+        self.validate(pose)
+        if pose[2] < self.settings["travel_z_mm"] - 0.2:
+            lifted = list(pose)
+            lifted[2] = self.settings["travel_z_mm"]
+            runner.move([lifted], self.settings.get("pick_velocity", 25.0))
+
+        pens = PenController(self, runner)
+        if self.held_stick_pose is not None:
+            pens.return_to_slot(
+                self.held_stick_pose,
+                on_released=lambda: setattr(self, "held_stick_pose", None),
             )
-        a, b, c = self.settings["plane_abc"]
-        contact = (
-            a * pose[0]
-            + b * pose[1]
-            + c
-            + self.settings["pen_slots"][self.held_pen]["z_offset_mm"]
-        )
-        lifted = pose[2] >= contact + self.settings["stroke_lift_mm"] - 0.2
-        if not has_inputs:
-            return lifted
-        return lifted and self.read_input(io["grip_input"]) == 1
+        pens.return_current()
+
+        j_vel = self.settings.get("joint_velocity", 60.0)
+        j_acc = self.settings.get("joint_acceleration", 60.0)
+        home_joints = self.settings.get("home_joints", [0.0, 0.0, 90.0, 0.0, 90.0, 0.0])
+        runner.move_joint(home_joints, j_vel, j_acc)
+        pens.gripper.off(runner)

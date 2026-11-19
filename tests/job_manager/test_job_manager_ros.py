@@ -107,7 +107,6 @@ class FakeControllerNode(Node):
             res.success = False
             res.final_state = "FAILED"
             res.completed_strokes = 0
-            res.pen_up_confirmed = True
             res.error_code = "MOCK_FAIL"
             res.message = "가짜 실행기 실패"
             handle.abort()
@@ -115,7 +114,7 @@ class FakeControllerNode(Node):
 
         handle.publish_feedback(
             ExecuteDrawing.Feedback(
-                stroke_id=0, event="STARTED_LIVE", pen_id="PEN_1", pen_up_confirmed=False, message="시작"
+                stroke_id=0, event="STARTED_LIVE", pen_id="PEN_1", message="시작"
             )
         )
         time.sleep(0.05)
@@ -123,19 +122,18 @@ class FakeControllerNode(Node):
         if self.mode == "wait_pause_resume":
             handle.publish_feedback(
                 ExecuteDrawing.Feedback(
-                    stroke_id=1, event="STROKE_COMPLETED", pen_id="PEN_1", pen_up_confirmed=True, message="1획"
+                    stroke_id=1, event="STROKE_COMPLETED", pen_id="PEN_1", message="1획"
                 )
             )
             assert self.resumed.wait(timeout=5.0), "RESUME 신호를 받지 못했습니다."
             handle.publish_feedback(
                 ExecuteDrawing.Feedback(
-                    stroke_id=2, event="STROKE_COMPLETED", pen_id="PEN_2", pen_up_confirmed=True, message="2획"
+                    stroke_id=2, event="STROKE_COMPLETED", pen_id="PEN_2", message="2획"
                 )
             )
             res.success = True
             res.final_state = "COMPLETED"
             res.completed_strokes = 2
-            res.pen_up_confirmed = True
             handle.succeed()
             return res
 
@@ -146,7 +144,6 @@ class FakeControllerNode(Node):
                     res.success = False
                     res.final_state = "INTERRUPTED_SAFE"
                     res.completed_strokes = 0
-                    res.pen_up_confirmed = True
                     res.message = "안전 중단 완료"
                     handle.canceled()
                     return res
@@ -158,7 +155,7 @@ class FakeControllerNode(Node):
         for sid, pen in ((1, "PEN_1"), (2, "PEN_2")):
             handle.publish_feedback(
                 ExecuteDrawing.Feedback(
-                    stroke_id=sid, event="STROKE_COMPLETED", pen_id=pen, pen_up_confirmed=True, message=f"{sid}획 완료"
+                    stroke_id=sid, event="STROKE_COMPLETED", pen_id=pen, message=f"{sid}획 완료"
                 )
             )
             time.sleep(0.03)
@@ -167,7 +164,6 @@ class FakeControllerNode(Node):
         res.success = True
         res.final_state = "COMPLETED"
         res.completed_strokes = 2
-        res.pen_up_confirmed = True
         res.message = "완료"
         handle.succeed()
         return res

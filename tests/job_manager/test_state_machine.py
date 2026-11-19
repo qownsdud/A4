@@ -46,12 +46,7 @@ def test_full_lifecycle_and_decisions(tmp_path: Path):
     assert machine.on_feedback("J1", event="STARTED_LIVE")
     assert machine.status("J1").state == "DRAWING"
 
-    # 펜 이격 미확인 획 완료는 무시
-    assert not machine.on_feedback("J1", event="STROKE_COMPLETED", stroke_id=1, pen_id="PEN_1", pen_up_confirmed=False)
-    assert machine.status("J1").completed_strokes == 0
-
-    # 펜 이격 확인 시 획 완료 반영
-    assert machine.on_feedback("J1", event="STROKE_COMPLETED", stroke_id=1, pen_id="PEN_1", pen_up_confirmed=True)
+    assert machine.on_feedback("J1", event="STROKE_COMPLETED", stroke_id=1, pen_id="PEN_1")
     assert machine.status("J1").completed_strokes == 1
     assert machine.status("J1").current_pen == "PEN_2"
 
@@ -70,9 +65,9 @@ def test_full_lifecycle_and_decisions(tmp_path: Path):
     machine.on_control_reply("J1", "RESUME", True)
     assert machine.status("J1").state == "DRAWING"
 
-    assert machine.on_feedback("J1", event="STROKE_COMPLETED", stroke_id=2, pen_id="PEN_2", pen_up_confirmed=True)
+    assert machine.on_feedback("J1", event="STROKE_COMPLETED", stroke_id=2, pen_id="PEN_2")
     ok = machine.on_action_result(
-        "J1", ros_status=4, success=True, final_state="COMPLETED", completed_strokes=2, pen_up_confirmed=True
+        "J1", ros_status=4, success=True, final_state="COMPLETED", completed_strokes=2
     )
     assert ok and machine.status("J1").state == "COMPLETED"
     assert machine.active_job() is None
@@ -99,3 +94,24 @@ def test_failure_ends_stopped_without_locking_next_job(tmp_path: Path):
     assert machine.mark_failed("J_FAIL", "DRIVER_ERROR", "통신 실패")
     assert machine.status("J_FAIL").state == "STOPPED"
     assert machine.create_job("J_NEXT", p2).accepted
+
+
+def test_external_force_stop_allows_resume_or_cancel(tmp_path: Path):
+    sink = MemoryDecisionSink()
+    machine = JobStateMachine(plan_root=tmp_path, decision_sink=sink)
+    p1 = _create_plan_file(tmp_path, "J_FORCE")
+
+    assert machine.create_job("J_FORCE", p1).accepted
+    assert machine.prepare_dispatch("J_FORCE") is not None
+    assert machine.on_feedback("J_FORCE", event="STARTED_LIVE")
+    assert machine.on_feedback("J_FORCE", event="STROKE_COMPLETED", stroke_id=1, pen_id="PEN_1")
+
+    # 외력 감지 -> FORCE_STOPPED 전이
+    assert machine.on_feedback("J_FORCE", event="EXTERNAL_FORCE_STOP", stroke_id=2, message="외력 초과")
+    assert machine.status("J_FORCE").state == "FORCE_STOPPED"
+
+    # RESUME으로 2번 획부터 재개 가능 확인
+    r_res = machine.control_job("J_FORCE", "RESUME", "REQ_RES_1")
+    assert r_res.accepted and r_res.state == "RESUMING"
+    dispatch = machine.prepare_dispatch("J_FORCE")
+    assert dispatch is not None and dispatch.start_stroke_id == 2
