@@ -30,6 +30,9 @@ _DEFAULT_FONT_CANDIDATES = (
 _RENDER_SIZE = 140
 _PADDING = 20
 _MIN_DOT_MASK_AREA = 15
+MIN_THICKNESS_Z_DELTA_MM = 0.7   # 가장 얇은 구간: 기준 높이보다 +0.7mm 상승
+MAX_THICKNESS_Z_DELTA_MM = -1.3  # 가장 두꺼운 구간: 기준 높이보다 -1.3mm 하강
+_MAX_THICKNESS_SAMPLE_SEG_PX = 8.0
 
 
 def _font_candidates() -> Tuple[str, ...]:
@@ -182,8 +185,8 @@ def _trace_skeleton_strokes(skel: np.ndarray, mask: np.ndarray) -> List[List[Tup
         for x, y in fg
     }
 
-    endpoints = sorted((p for p, nb in adj.items() if len(nb) == 1), key=lambda p: (p[0], p[1]))
-    others = sorted((p for p, nb in adj.items() if len(nb) != 1), key=lambda p: (p[0], p[1]))
+    endpoints = sorted((p for p, nb in adj.items() if len(nb) == 1), key=lambda p: (p[1], p[0]))
+    others = sorted((p for p, nb in adj.items() if len(nb) != 1), key=lambda p: (p[1], p[0]))
 
     visited: set[Tuple[int, int]] = set()
     strokes: List[List[Tuple[float, float]]] = []
@@ -276,16 +279,76 @@ def _trace_skeleton_strokes(skel: np.ndarray, mask: np.ndarray) -> List[List[Tup
         if is_closed and len(pts) >= 2:
             pts.append(pts[0])
         if len(pts) >= 2:
-            simplified.append(pts)
+            simplified.append(_orient_human_stroke(pts))
 
-    simplified.sort(key=lambda s: (min(p[0] for p in s), min(p[1] for p in s)))
+    simplified.sort(key=lambda s: (s[0][0] + 0.85 * s[0][1], s[0][1], s[0][0]))
     return simplified
+
+
+def _orient_human_stroke(pts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    """사람이 글씨를 쓰는 방향(위->아래, 왼->오, 닫힌 원은 위에서 반시계)으로 획 방향을 맞춥니다."""
+    if len(pts) < 2:
+        return pts
+    is_closed = len(pts) >= 4 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) <= 2.0
+    if is_closed:
+        ring = list(pts[:-1])
+        n = len(ring)
+        if n >= 3:
+            area2 = sum(
+                (ring[(i + 1) % n][0] - ring[i][0]) * (ring[(i + 1) % n][1] + ring[i][1])
+                for i in range(n)
+            )
+            if area2 < 0:
+                ring.reverse()
+            top_idx = min(range(n), key=lambda i: (ring[i][1], ring[i][0]))
+            ring = ring[top_idx:] + ring[:top_idx]
+        return ring + [ring[0]]
+
+    x0, y0 = pts[0]
+    x1, y1 = pts[-1]
+    dx, dy = x1 - x0, y1 - y0
+    if abs(dy) >= 0.45 * abs(dx) and abs(dy) >= 6.0:
+        return list(reversed(pts)) if dy < 0 else pts
+    if dx < 0 or (abs(dx) < 1e-6 and dy < 0):
+        return list(reversed(pts))
+    return pts
+
+
+def _sample_radius(dist: np.ndarray, x: float, y: float) -> float:
+    """거리 변환 맵에서 (x, y) 주변 3x3 최대 반지름(선 두께의 절반)을 읽습니다."""
+    h, w = dist.shape
+    cx = max(0, min(w - 1, int(round(x))))
+    cy = max(0, min(h - 1, int(round(y))))
+    x0, x1 = max(0, cx - 1), min(w, cx + 2)
+    y0, y1 = max(0, cy - 1), min(h, cy + 2)
+    return float(np.max(dist[y0:y1, x0:x1]))
+
+
+def _subdivide_and_sample_radii(
+    pts: List[Tuple[float, float]], dist: np.ndarray
+) -> Tuple[List[Tuple[float, float]], List[float]]:
+    """긴 직선 구간을 세분화하고 각 꼭짓점의 폰트 선 반지름을 추출합니다."""
+    if len(pts) < 2:
+        return pts, [_sample_radius(dist, p[0], p[1]) for p in pts]
+    dense: List[Tuple[float, float]] = [pts[0]]
+    for i in range(len(pts) - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        seg_len = math.hypot(x1 - x0, y1 - y0)
+        if seg_len > _MAX_THICKNESS_SAMPLE_SEG_PX:
+            steps = int(math.ceil(seg_len / _MAX_THICKNESS_SAMPLE_SEG_PX))
+            for s in range(1, steps):
+                t = s / steps
+                dense.append((x0 + (x1 - x0) * t, y0 + (y1 - y0) * t))
+        dense.append((x1, y1))
+    radii = [_sample_radius(dist, x, y) for x, y in dense]
+    return dense, radii
 
 
 def _render_char_strokes(
     ch: str, font: ImageFont.FreeTypeFont, max_ascent: int
-) -> List[List[Tuple[float, float]]]:
-    """단일 문자를 렌더링해 스켈레톤 획(캔버스 좌상단 기준 px) 리스트를 반환합니다."""
+) -> List[Tuple[List[Tuple[float, float]], List[float]]]:
+    """단일 문자를 렌더링해 (스켈레톤 획, 점별 선 반지름) 리스트를 반환합니다."""
     ascent, descent = font.getmetrics()
     adv = max(float(font.getlength(ch)), 10.0)
     canvas_w = max(32, int(math.ceil(adv)) + _PADDING * 2)
@@ -296,12 +359,16 @@ def _render_char_strokes(
     draw.text((_PADDING, baseline_y - ascent), ch, fill=255, font=font)
 
     mask = (np.array(img) > 127).astype(np.uint8)
+    dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
     skel = _zhang_suen_thinning(mask)
     skel = _prune_spurs(skel, max_spur_len=6)
-    return _trace_skeleton_strokes(skel, mask)
+    strokes = _trace_skeleton_strokes(skel, mask)
+    return [_subdivide_and_sample_radii(st, dist) for st in strokes]
 
 
-def _render_text_ordered(text: str, candidates: Tuple[str, ...]) -> Tuple[List[List[Tuple[float, float]]], int]:
+def _render_text_ordered(
+    text: str, candidates: Tuple[str, ...]
+) -> Tuple[List[List[Tuple[float, float]]], List[List[float]], int]:
     """문자 단위로 렌더링·추적하여 왼쪽에서 오른쪽 순서가 반드시 유지되게 합니다."""
     glyph_runs: List[Tuple[str, Optional[ImageFont.FreeTypeFont], float]] = []
     max_ascent = 0
@@ -322,16 +389,18 @@ def _render_text_ordered(text: str, candidates: Tuple[str, ...]) -> Tuple[List[L
         glyph_runs.append((ch, font, adv))
 
     all_strokes: List[List[Tuple[float, float]]] = []
+    all_radii: List[List[float]] = []
     cursor_x = 0.0
     baseline_y = _PADDING + max_ascent
     for ch, font, adv in glyph_runs:
         if font is not None:
             char_strokes = _render_char_strokes(ch, font, max_ascent)
-            for st in char_strokes:
+            for st, radii in char_strokes:
                 all_strokes.append([(cursor_x + (px - _PADDING), py) for px, py in st])
+                all_radii.append(radii)
         cursor_x += adv
 
-    return all_strokes, baseline_y
+    return all_strokes, all_radii, baseline_y
 
 
 def generate_strokes(
@@ -355,9 +424,14 @@ def generate_strokes(
     if not candidates:
         raise RuntimeError("시스템에 사용 가능한 트루타입 폰트가 없습니다.")
 
-    raw_strokes, baseline_y = _render_text_ordered(text, candidates)
+    raw_strokes, raw_radii, baseline_y = _render_text_ordered(text, candidates)
     if not raw_strokes:
         return []
+
+    flat_radii = [r for rs in raw_radii for r in rs]
+    min_r = min(flat_radii) if flat_radii else 0.0
+    max_r = max(flat_radii) if flat_radii else 0.0
+    radius_span = max(max_r - min_r, 2.0)
 
     all_x = [p[0] for st in raw_strokes for p in st]
     all_y = [p[1] for st in raw_strokes for p in st]
@@ -384,7 +458,7 @@ def generate_strokes(
         start_y = base_mm - (baseline_y - min_y) * scale
 
     strokes: List[dict] = []
-    for st in raw_strokes:
+    for st, radii in zip(raw_strokes, raw_radii):
         points = [
             [
                 round(start_x + (px - min_x) * scale, 3),
@@ -394,5 +468,14 @@ def generate_strokes(
         ]
         if any(not (0 <= x <= paper_size_mm[0] and 0 <= y <= paper_size_mm[1]) for x, y in points):
             raise ValueError("문구가 A4 범위를 벗어납니다.")
-        strokes.append(dict(pen_id=pen_id, layer="calligraphy", points_mm=points))
+        z_deltas = [
+            round(
+                MIN_THICKNESS_Z_DELTA_MM
+                + (MAX_THICKNESS_Z_DELTA_MM - MIN_THICKNESS_Z_DELTA_MM)
+                * max(0.0, min(1.0, (r - min_r) / radius_span)),
+                3,
+            )
+            for r in radii
+        ]
+        strokes.append(dict(pen_id=pen_id, layer="calligraphy", points_mm=points, z_deltas_mm=z_deltas))
     return strokes

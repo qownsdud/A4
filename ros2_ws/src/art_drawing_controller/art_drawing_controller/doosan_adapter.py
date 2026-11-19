@@ -242,7 +242,7 @@ class DoosanAdapter:
                 deadline,
                 pos=[Float64MultiArray(data=p) for p in poses],
                 pos_cnt=len(poses),
-                opt=1,
+                opt=int(self.settings.get("spline_vel_opt", 0)),
                 **fields,
             )
 

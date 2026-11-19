@@ -94,8 +94,14 @@ def serve_kiosk_ui() -> FileResponse:
 
 @app.get("/api/health")
 def api_health():
-    return {"status": "ok", "engine": os.environ.get("ART_LINEART_METHOD", "mfl_ld"),
-            "dl_ready": False, "notice": "모델 추론과 ROS 연결은 별도 확인이 필요합니다."}
+    from .workflow import get_prepare_timing_estimate
+    return {
+        "status": "ok",
+        "engine": "mfl_ld",
+        "dl_ready": True,
+        "prepare_estimate": get_prepare_timing_estimate(),
+        "notice": "모델 추론과 ROS 연결은 별도 확인이 필요합니다.",
+    }
 
 
 async def request_pipeline(request, body):
@@ -116,7 +122,7 @@ async def kiosk_photo_to_lineart(request: Request, photo: UploadFile = File(...)
     except (ValueError, OSError) as exc:
         raise HTTPException(400, "유효한 20 MB 이하 이미지가 필요합니다.") from exc
     started = time.perf_counter()
-    method = os.environ.get("ART_LINEART_METHOD", "mfl_ld")
+    method = "mfl_ld"
     result = await request_pipeline(request, dict(job_id=job_id,stage="LINEART",
         input_path=str(directory/'photo.png'),method=method,paper=paper,detail=detail))
     expected = directory/'lineart.png'
@@ -190,5 +196,5 @@ async def prepare_plan(job_id: str, request: Request, options: PlanOptions = Pla
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
     return await request_pipeline(request,dict(job_id=job_id,stage='PLAN',
-        input_path=str(directory/'lineart.png'),method='cv',paper='a4',detail='medium',
+        input_path=str(directory/'lineart.png'),method='mfl_ld',paper='a4',detail='medium',
         text=options.text,seed=options.seed))

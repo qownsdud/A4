@@ -26,8 +26,8 @@ def execution_strokes(plan, start_stroke_id=1):
     return strokes[start_stroke_id - 1 :]
 
 
-def split_at_corners(points, angle_deg=35.0):
-    """참고 draw_stroke_group의 모서리 분할만 재사용합니다. 좌표는 수정하지 않습니다."""
+def split_at_corners(points, angle_deg=55.0, min_arm_mm=1.2):
+    """참고 draw_stroke_group의 모서리 분할만 재사용합니다. 미세 계단(< min_arm_mm)에서는 정지하지 않습니다."""
     if len(points) < 3:
         return [points]
     parts = []
@@ -37,8 +37,8 @@ def split_at_corners(points, angle_deg=35.0):
         b = [points[i + 1][k] - points[i][k] for k in (0, 1)]
         na, nb = math.hypot(*a), math.hypot(*b)
         corner = (
-            na > 1e-6
-            and nb > 1e-6
+            na >= min_arm_mm
+            and nb >= min_arm_mm
             and math.degrees(
                 math.acos(
                     max(-1.0, min(1.0, sum(x * y for x, y in zip(a, b)) / (na * nb)))
@@ -59,11 +59,74 @@ def motion_chunks(poses, settings):
     if not settings.get("use_spline"):
         return [[p] for p in poses[1:]]
     chunks = []
-    for segment in split_at_corners(poses, settings.get("corner_angle_deg", 35.0)):
+    for segment in split_at_corners(poses, settings.get("corner_angle_deg", 55.0)):
         targets = segment[1:]
         count = settings.get("spline_max_points", 80)
         chunks.extend(targets[i : i + count] for i in range(0, len(targets), count))
     return chunks
+
+
+def spline_motion_profile(start_pose, chunk, settings):
+    """스플라인(movesx) 구간의 곡률과 S자 구불거림에 따라 하드웨어 무리가 없도록 속도·가속도를 자동 감속합니다."""
+    base_vel = float(settings.get("draw_velocity", 82.5))
+    base_acc = float(settings.get("draw_acceleration", settings.get("acceleration", 200.0)))
+    if len(chunk) <= 1:
+        return base_vel, base_acc
+
+    vel_scale = float(settings.get("spline_vel_scale", 0.85))
+    max_lat_acc = float(settings.get("spline_max_lateral_acc", 320.0))
+    min_vel = min(base_vel, float(settings.get("spline_min_velocity", 35.0)))
+    min_acc = min(base_acc, float(settings.get("spline_min_acceleration", 80.0)))
+
+    pts = [start_pose] + list(chunk)
+    total_len = 0.0
+    total_ang = 0.0
+    ks = []
+    prev_sign = 0
+    reversals = 0
+    for i in range(1, len(pts)):
+        total_len += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+    for i in range(1, len(pts) - 1):
+        ax, ay = pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]
+        bx, by = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
+        cx, cy = pts[i + 1][0] - pts[i - 1][0], pts[i + 1][1] - pts[i - 1][1]
+        na, nb, nc = math.hypot(ax, ay), math.hypot(bx, by), math.hypot(cx, cy)
+        if na < 1e-6 or nb < 1e-6 or nc < 1e-6:
+            continue
+        cross = ax * by - ay * bx
+        cos_v = max(-1.0, min(1.0, (ax * bx + ay * by) / (na * nb)))
+        ang = math.acos(cos_v)
+        total_ang += ang
+        if na + nb >= 2.0:
+            ks.append((2.0 * abs(cross)) / (na * nb * nc))
+        if ang >= math.radians(15.0):
+            sign = 1 if cross > 0 else -1
+            if prev_sign != 0 and sign != prev_sign:
+                reversals += 1
+            prev_sign = sign
+
+    avg_k = total_ang / max(total_len, 1.0)
+    if ks:
+        ks.sort()
+        p80_k = ks[int(0.80 * (len(ks) - 1))]
+    else:
+        p80_k = avg_k
+    eff_k = max(avg_k, 0.75 * p80_k)
+
+    spline_cap = max(min_vel, base_vel * vel_scale)
+    vel = spline_cap
+    if eff_k > 1e-6:
+        vel = min(spline_cap, math.sqrt(max_lat_acc / eff_k))
+
+    # S자 구불거림(곡률 부호 반전)이 빈번하면 추가 감속해 좌우 진동/저크를 억제합니다.
+    wiggle_rate = reversals / max(total_len / 15.0, 1.0)
+    if reversals >= 2 and wiggle_rate > 0.5:
+        vel *= max(0.70, 1.0 / (1.0 + 0.18 * wiggle_rate))
+
+    vel = max(min_vel, min(spline_cap, vel))
+    ratio = vel / max(base_vel, 1e-6)
+    acc = max(min_acc, min(base_acc * vel_scale, base_acc * (ratio ** 1.35)))
+    return round(vel, 1), round(acc, 1)
 
 
 def validate_execution(plan, adapter):
@@ -78,8 +141,10 @@ def validate_execution(plan, adapter):
         if approach[2] > settings["travel_z_mm"]:
             raise ValueError("슬롯 접근 높이보다 안전 이동 높이가 낮습니다.")
     for stroke in execution_strokes(plan):
-        for point in stroke["points_mm"]:
-            pose = drawing_pose(point, stroke["pen_id"], settings)
+        dzs = stroke.get("z_deltas_mm")
+        for idx, point in enumerate(stroke["points_mm"]):
+            dz = float(dzs[idx]) if isinstance(dzs, list) and idx < len(dzs) else 0.0
+            pose = drawing_pose(point, stroke["pen_id"], settings, z_delta_mm=dz)
             adapter.validate(pose)
             pose[2] += settings["stroke_lift_mm"]
             adapter.validate(pose)
@@ -94,6 +159,7 @@ class MotionRunner:
         self.force_guard = force_guard
         self.motion_context = {"pen_idx": 0, "stroke_idx": 0, "point_idx": 0, "held_item": ""}
         self._resumed_from_home = False
+        self._last_force_check = 0.0
 
     def check_cancel(self):
         if self.cancelled() or self.session.state in ("STOPPING", "STOPPED"):
@@ -196,16 +262,15 @@ class MotionRunner:
 
     def _wait_motion_complete(self, target_pose=None):
         elapsed = 0.0
-        last_force_check = 0.0
         previous = time.monotonic()
         while True:
             self.check_cancel()
             now = time.monotonic()
             if self.session.state in ("RUNNING", "PAUSING"):
                 elapsed += now - previous
-                if now - last_force_check >= 0.1:
+                if now - self._last_force_check >= 0.1:
                     self._check_external_force(target_pose or [0.0] * 6)
-                    last_force_check = now
+                    self._last_force_check = now
                 if self.adapter.held_pen is not None:
                     grip_input = self.adapter.settings["gripper"].get("grip_input")
                     if grip_input is not None and self.adapter.read_input(grip_input) != 1:
@@ -217,7 +282,7 @@ class MotionRunner:
                 if elapsed > self.adapter.settings["motion_timeout_sec"]:
                     raise RuntimeError("모션 완료 확인 시간 초과")
             previous = time.monotonic()
-            time.sleep(0.015)
+            time.sleep(0.005)
 
     def move(self, poses, velocity, acceleration=None, mod=0):
         params = inspect.signature(self.adapter.begin_motion).parameters
@@ -316,10 +381,12 @@ def execute(
     settings = adapter.settings
     l_vel = settings.get("travel_velocity", 80.0)
     l_acc = settings.get("travel_acceleration", settings.get("acceleration", 80.0))
-    p_vel = settings.get("pick_velocity", 25.0)
-    p_acc = settings.get("pick_acceleration", settings.get("acceleration", 25.0))
-    d_vel = settings.get("draw_velocity", 25.0)
-    d_acc = settings.get("draw_acceleration", settings.get("acceleration", 25.0))
+    p_vel = settings.get("pick_velocity", 40.0)
+    p_acc = settings.get("pick_acceleration", settings.get("acceleration", 80.0))
+    pd_vel = settings.get("pen_down_velocity", p_vel)
+    pd_acc = settings.get("pen_down_acceleration", p_acc)
+    d_vel = settings.get("draw_velocity", 82.5)
+    d_acc = settings.get("draw_acceleration", settings.get("acceleration", 200.0))
     group_lift = settings.get("group_lift_mm", 15.0)
     stroke_lift = settings.get("stroke_lift_mm", 4.0)
 
@@ -327,8 +394,15 @@ def execute(
     for stroke in execution_strokes(plan, start_stroke_id):
         runner.check_cancel()
         prev_pen = adapter.held_pen
+        dzs = stroke.get("z_deltas_mm")
         poses = [
-            drawing_pose(p, stroke["pen_id"], settings) for p in stroke["points_mm"]
+            drawing_pose(
+                p,
+                stroke["pen_id"],
+                settings,
+                z_delta_mm=float(dzs[idx]) if isinstance(dzs, list) and idx < len(dzs) else 0.0,
+            )
+            for idx, p in enumerate(stroke["points_mm"])
         ]
         if prev_pen != stroke["pen_id"]:
             if prev_pen is not None and last_pose is not None:
@@ -354,10 +428,13 @@ def execute(
         first = list(poses[0])
         first[2] += stroke_lift
         runner.move([first], l_vel, l_acc)
-        runner.move([poses[0]], p_vel, p_acc)
+        runner.move([poses[0]], pd_vel, pd_acc)
+        prev_pose = poses[0]
         for pt_idx, chunk in enumerate(motion_chunks(poses, settings), start=1):
             runner.motion_context["point_idx"] = pt_idx
-            runner.move(chunk, d_vel, d_acc)
+            c_vel, c_acc = spline_motion_profile(prev_pose, chunk, settings)
+            runner.move(chunk, c_vel, c_acc)
+            prev_pose = chunk[-1]
         lifted = list(poses[-1])
         lifted[2] += stroke_lift
         runner.move([lifted], l_vel, l_acc)

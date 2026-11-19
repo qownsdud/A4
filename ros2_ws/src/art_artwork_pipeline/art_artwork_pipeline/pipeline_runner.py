@@ -111,7 +111,7 @@ def _check_cancel(cancel):
     if cancel():
         raise InterruptedError('사용자가 이미지 처리를 취소했습니다.')
 
-def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper='a4',
+def prepare_artwork(job_id, *, stage, input_path, root=None, method='mfl_ld', paper='a4',
                     detail='medium', seed=42, text='', cancel=lambda: False,
                     feedback=lambda stage: None):
     """단계: LINEART → 명시적 사용자 확인 → PLAN. 작업 등록/실행은 하지 않습니다.
@@ -206,8 +206,18 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
         plan = build_plan(payload, width, height, job_id=job_id, seed=seed,
                           paper_size_mm=placement['size'], margin_mm=placement['margin'],
                           artwork_box_mm=box, max_stroke_mm=55.0)
-        # 앞단 픽셀 단순화(eps=1.5) 결과를 유지하기 위해 mm 재단순화는 비활성화
-        plan = optimize_plan(plan, backend='opencv', simplify_tolerance_mm=0.0, max_strokes=None, curve_step_mm=0)
+        # 잉크 번짐 방지: 촘촘한 미세 점 병합(0.85mm), 중복 펜질 제한(동일 경로 덧칠 차단·교차 최대 2회·패치 밀도 제한) 적용
+        plan = optimize_plan(
+            plan,
+            backend='opencv',
+            simplify_tolerance_mm=0.22,
+            max_strokes=None,
+            curve_step_mm=0,
+            min_point_spacing_mm=0.85,
+            min_stroke_mm=2.5,
+            max_ink_passes=1,
+            max_local_ink_mm=6.5,
+        )
         plan['strokes'].extend(generate_strokes(text, origin=placement['text_origin'], bounds_mm=placement['text_bounds'], paper_size_mm=placement['size'], pen_id='PEN_4'))
         for i, stroke in enumerate(plan['strokes']):
             stroke.update(stroke_id=i+1,execution_order=i)
