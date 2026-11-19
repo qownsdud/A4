@@ -52,6 +52,12 @@ def create_app(bridge: BridgePort) -> FastAPI:
         ready = bridge.is_ready()
         return {"status": "ready" if ready else "degraded", "job_manager_reachable": ready}
 
+    @app.post('/bridge/artwork/cancel')
+    async def cancel_artwork():
+        if hasattr(bridge, "cancel_artwork"):
+            return await bridge.cancel_artwork()
+        return {"canceled": False}
+
     @app.post('/bridge/artwork')
     async def prepare_artwork(body: PrepareArtworkBody):
         if not valid_job_id(body.job_id):

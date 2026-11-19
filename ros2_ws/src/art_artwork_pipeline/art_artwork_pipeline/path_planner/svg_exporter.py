@@ -68,10 +68,11 @@ def export_svg(plan, output, stroke_width_mm=0.4):
                 })
         else:
             d = 'M ' + ' L '.join(f'{x:g},{y:g}' for x, y in pts)
+            uniform_w = 0.65 if path.get('layer') == 'calligraphy' else stroke_width_mm
             ET.SubElement(root, f'{{{SVG_NS}}}path', {
                 'd': d, 'fill': 'none',
                 'stroke': stroke_color,
-                'stroke-width': f'{stroke_width_mm:g}',
+                'stroke-width': f'{uniform_w:g}',
                 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
                 **base_attrs,
             })

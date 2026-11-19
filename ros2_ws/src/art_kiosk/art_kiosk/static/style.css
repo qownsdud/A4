@@ -624,6 +624,8 @@ input[type="range"] { width: 100%; accent-color: var(--primary); }
 .admin-media img { width:100%; height:280px; object-fit:contain; }
 .admin-media figcaption { color:var(--muted); margin-top:8px; }
 #prepareStatus { color:var(--primary); }
+.extract-actions { margin: 8px 0 4px; }
+.extract-actions .btn-primary { width: 100%; }
 .progress-box { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 8px; }
 .progress-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text); flex-wrap: wrap; }
 #prepareEta, #jobEta { color: var(--primary); }
