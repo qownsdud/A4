@@ -5,7 +5,7 @@ import hashlib
 import json
 import math
 
-PENS = ("PEN_1", "PEN_2", "PEN_3")
+PENS = ("PEN_1", "PEN_2", "PEN_3", "PEN_4")
 
 
 def finite_vector(value, n, label):
@@ -89,9 +89,16 @@ def validate_equipment(data):
         or not 0 < data.get("corner_angle_deg", 35.0) < 180
     ):
         raise ValueError("모서리 분할 각도가 잘못되었습니다.")
-    for pen in PENS:
-        info = data.get("pen_slots", {}).get(pen, {})
+    slots = data.get("pen_slots", {})
+    for pen in ("PEN_1", "PEN_2", "PEN_3"):
+        info = slots.get(pen, {})
         finite_vector(info.get("pose"), 6, pen + " 슬롯")
+        z = info.get("z_offset_mm")
+        if type(z) not in (float, int) or not math.isfinite(z) or abs(z) > 100:
+            raise ValueError("각 펜에서 측정한 그리기 Z 오프셋이 필요합니다.")
+    if "PEN_4" in slots:
+        info = slots.get("PEN_4", {})
+        finite_vector(info.get("pose"), 6, "PEN_4 슬롯")
         z = info.get("z_offset_mm")
         if type(z) not in (float, int) or not math.isfinite(z) or abs(z) > 100:
             raise ValueError("각 펜에서 측정한 그리기 Z 오프셋이 필요합니다.")
@@ -154,36 +161,38 @@ def load_default_equipment_settings():
             plane_abc=[0.0, 0.0, 238.0],
             orientation_deg=[0.0, 180.0, 0.0],
             pen_slots={
-                "PEN_1": dict(pose=[567.0, 42.0, 366.0, 90.0, 180.0, 90.0], z_offset_mm=13.5),
-                "PEN_2": dict(pose=[568.0, 11.0, 366.0, 95.0, 180.0, 95.0], z_offset_mm=13.5),
-                "PEN_3": dict(pose=[568.0, -19.0, 366.0, 92.0, 180.0, 92.0], z_offset_mm=13.5),
+                "PEN_1": dict(pose=[567.0, 42.0, 136.7, 90.0, 180.0, 90.0], z_offset_mm=12.5),
+                "PEN_2": dict(pose=[568.0, 11.0, 136.7, 95.0, 180.0, 95.0], z_offset_mm=12.5),
+                "PEN_3": dict(pose=[568.0, -19.0, 136.7, 92.0, 180.0, 92.0], z_offset_mm=12.5),
+                "PEN_4": dict(pose=[568.0, -50.0, 136.7, 92.0, 180.0, 92.0], z_offset_mm=12.5),
             },
             limits_base_mm=[[-1000.0, 1000.0], [-1000.0, 1000.0], [0.0, 1000.0]],
             travel_z_mm=480.0,
             group_lift_mm=15.0,
             stroke_lift_mm=4.0,
             slot_approach_mm=100.0,
-            travel_velocity=80.0,
-            travel_acceleration=80.0,
-            draw_velocity=25.0,
-            draw_acceleration=25.0,
-            pick_velocity=25.0,
-            pick_acceleration=25.0,
+            travel_velocity=130.0,
+            travel_acceleration=130.0,
+            draw_velocity=55.0,
+            draw_acceleration=80.0,
+            pick_velocity=40.0,
+            pick_acceleration=60.0,
             probe_velocity=5.0,
             probe_acceleration=5.0,
-            joint_velocity=60.0,
-            joint_acceleration=60.0,
-            acceleration=80.0,
+            joint_velocity=75.0,
+            joint_acceleration=75.0,
+            acceleration=100.0,
             motion_timeout_sec=120.0,
             use_spline=True,
             spline_validated=True,
             spline_max_points=80,
-            corner_angle_deg=35.0,
+            corner_angle_deg=50.0,
             home_joints=[0.0, 0.0, 90.0, 0.0, 90.0, 0.0],
             ready_offset=[0.0, 0.0, -100.0, 0.0, 0.0, 0.0],
             stick_grip_rz_offset_deg=-45.0,
-            auto_calibrate_9pt=True,
+            auto_calibrate_9pt=False,
             calibrate_inset_mm=40.0,
+            external_force_limit_n=20.0,
             gripper=dict(
                 grip_output=1, release_output=2, grip_input=None, release_input=None
             ),
@@ -196,8 +205,8 @@ def import_reference(plane_path, pens_path, stick_path=None):
     plane = json.loads(Path(plane_path).read_text())
     pens = json.loads(Path(pens_path).read_text())
     points = [finite_vector(p, 6, "기존 보정점") for p in plane["points"]]
-    if len(points) != 9 or len(pens) != 3:
-        raise ValueError("9점 보정과 펜 슬롯 3개가 필요합니다.")
+    if len(points) != 9 or len(pens) not in (3, 4):
+        raise ValueError("9점 보정과 펜 슬롯 3개 또는 4개가 필요합니다.")
     stick_pose = None
     if stick_path is not None:
         stick_pose = list(finite_vector(json.loads(Path(stick_path).read_text())[:6], 6, "기준 막대 위치"))
@@ -224,7 +233,7 @@ def import_reference(plane_path, pens_path, stick_path=None):
         plane_abc=[a, b, c],
         orientation_deg=list(points[0][3:]),
         pen_slots={
-            pen: dict(pose=list(finite_vector(p, 6, "펜 슬롯")), z_offset_mm=13.5)
+            pen: dict(pose=list(finite_vector(p, 6, "펜 슬롯")), z_offset_mm=12.5)
             for pen, p in zip(PENS, pens)
         },
         stick_pose=stick_pose,
@@ -234,26 +243,26 @@ def import_reference(plane_path, pens_path, stick_path=None):
         group_lift_mm=15.0,
         stroke_lift_mm=4.0,
         slot_approach_mm=100.0,
-        travel_velocity=80.0,
-        travel_acceleration=80.0,
-        draw_velocity=25.0,
-        draw_acceleration=25.0,
-        pick_velocity=25.0,
-        pick_acceleration=25.0,
+        travel_velocity=130.0,
+        travel_acceleration=130.0,
+        draw_velocity=55.0,
+        draw_acceleration=80.0,
+        pick_velocity=40.0,
+        pick_acceleration=60.0,
         probe_velocity=5.0,
         probe_acceleration=5.0,
-        joint_velocity=60.0,
-        joint_acceleration=60.0,
-        acceleration=80.0,
+        joint_velocity=75.0,
+        joint_acceleration=75.0,
+        acceleration=100.0,
         motion_timeout_sec=120.0,
         use_spline=True,
         spline_validated=True,
         spline_max_points=80,
-        corner_angle_deg=35.0,
+        corner_angle_deg=50.0,
         home_joints=[0.0, 0.0, 90.0, 0.0, 90.0, 0.0],
         ready_offset=[0.0, 0.0, -100.0, 0.0, 0.0, 0.0],
         stick_grip_rz_offset_deg=-45.0,
-        auto_calibrate_9pt=True,
+        auto_calibrate_9pt=False,
         calibrate_inset_mm=40.0,
         gripper=dict(
             grip_output=1, release_output=2, grip_input=None, release_input=None

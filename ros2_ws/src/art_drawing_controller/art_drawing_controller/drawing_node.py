@@ -17,7 +17,12 @@ from .equipment_settings import (
 from .plan_loader import load_execution_plan
 from .live_control_server import LiveControlServer
 from .live_motion import LiveMotionSession
-from .stroke_executor import execute, validate_execution, DrawingCancelled
+from .stroke_executor import (
+    DrawingCancelled,
+    ExternalForceDetected,
+    execute,
+    validate_execution,
+)
 
 
 class DrawingNode(Node):
@@ -44,7 +49,7 @@ class DrawingNode(Node):
         except (ValueError, OSError, ImportError, KeyError) as exc:
             self._settings = None
             self.get_logger().error("장비 설정 로드 실패: " + str(exc))
-        self.live_control = LiveControlServer(self)
+        self.live_control = LiveControlServer(self, on_recover=self._recover_to_home)
         self.server = ActionServer(
             self,
             ExecuteDrawing,
@@ -54,6 +59,19 @@ class DrawingNode(Node):
             cancel_callback=self.cancel,
             callback_group=ReentrantCallbackGroup(),
         )
+
+    def _recover_to_home(self):
+        if not self._busy.acquire(timeout=5.0):
+            return False, "UNKNOWN", "CONTROLLER_BUSY"
+        try:
+            if self.adapter is not None and hasattr(self.adapter, "return_pen_and_home"):
+                self.adapter.return_pen_and_home()
+            return True, "STOPPED", ""
+        except Exception as exc:
+            self.get_logger().warning(f"외력 정지 후 원상복구 중 오류: {exc}")
+            return False, "UNKNOWN", str(exc)[:120]
+        finally:
+            self._busy.release()
 
     def _plan(self, request):
         return load_execution_plan(
@@ -88,18 +106,16 @@ class DrawingNode(Node):
         result = ExecuteDrawing.Result()
         result.success = False
         result.final_state = "FAILED"
-        result.pen_up_confirmed = False
         result.completed_strokes = handle.request.start_stroke_id - 1
         session = None
 
-        def feedback(event, stroke_id=0, pen_id="", pen_up=False):
+        def feedback(event, stroke_id=0, pen_id=""):
             if event == "STROKE_COMPLETED":
                 result.completed_strokes = stroke_id
             message = ExecuteDrawing.Feedback(
                 event=event,
                 stroke_id=stroke_id,
                 pen_id=pen_id,
-                pen_up_confirmed=pen_up,
                 message="실물 관측 기반 실행 상태",
             )
             handle.publish_feedback(message)
@@ -142,18 +158,31 @@ class DrawingNode(Node):
                 if session.state == "FAILED":
                     raise RuntimeError("실행 문맥 실패")
                 session.wait_running(0.02)
-            if not self.adapter.pen_up_confirmed():
-                raise RuntimeError("최종 안전 상태 재확인 실패")
             result.success = True
             result.final_state = "COMPLETED"
-            result.pen_up_confirmed = True
             handle.succeed()
+        except ExternalForceDetected as exc:
+            self.get_logger().warning(f"외력 감지 즉시 정지: {exc}")
+            feedback("EXTERNAL_FORCE_STOP", result.completed_strokes, "")
+            if session is not None:
+                try:
+                    session.cancel()
+                except Exception:
+                    pass
+            result.final_state = "INTERRUPTED_SAFE"
+            result.error_code = "EXTERNAL_FORCE_DETECTED"
+            result.message = str(exc)[:300]
+            handle.abort()
         except DrawingCancelled:
             try:
-                safe = session.cancel() if session else self.adapter.pen_up_confirmed()
+                safe = session.cancel() if session else True
             except Exception:
                 safe = False
-            result.pen_up_confirmed = bool(safe)
+            if hasattr(self.adapter, "return_pen_and_home"):
+                try:
+                    self.adapter.return_pen_and_home()
+                except Exception as rec_exc:
+                    self.get_logger().warning(f"중단 후 원상복구 중 오류: {rec_exc}")
             if safe:
                 result.final_state = "INTERRUPTED_SAFE"
                 handle.canceled()
@@ -163,7 +192,15 @@ class DrawingNode(Node):
         except Exception as exc:
             self.get_logger().error(f"실물 실행 실패 ({type(exc).__name__}): {exc}")
             if session is not None:
-                result.pen_up_confirmed = session.cancel()
+                session.cancel()
+            if (
+                (self.adapter.held_pen is not None or getattr(self.adapter, "held_stick_pose", None) is not None)
+                and hasattr(self.adapter, "return_pen_and_home")
+            ):
+                try:
+                    self.adapter.return_pen_and_home()
+                except Exception as rec_exc:
+                    self.get_logger().warning(f"예외 후 펜 반납 중 오류: {rec_exc}")
             result.error_code = type(exc).__name__
             result.message = str(exc)[:300]
             handle.abort()

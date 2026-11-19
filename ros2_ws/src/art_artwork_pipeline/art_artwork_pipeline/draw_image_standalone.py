@@ -78,8 +78,8 @@ CALIBRATE_INSET_MM = 40.0        # 무게추 회피를 위해 모서리/변 점�
 GRIPPER_PROBE_START_OFFSET_Z = 15.0  # 첫 점 탐색 시작 높이 오프셋 (+mm)
 GRIPPER_PROBE_MAX_TRAVEL_MM = 30.0   # 빈 그리퍼 최대 하강 탐색 거리 (mm)
 
-# 펜 1, 2, 3 그리기 높이 오프셋 및 안전 여백
-PEN_Z_OFFSETS = [13.5, 13.5, 13.5]
+# 펜 1, 2, 3, 4(글씨용 검정) 그리기 높이 오프셋 및 안전 여백
+PEN_Z_OFFSETS = [12.5, 12.5, 12.5, 12.5]
 RECT_MARGIN_MM = 20.0
 
 # 이미지 벡터화 파라미터 (image_vectorizer.py 방식 — 원본 선 형태 보존 우선)
@@ -406,6 +406,7 @@ def save_drawing_preview(
         (200, 70, 20),   # 펜 1 (파랑)
         (40, 40, 220),   # 펜 2 (빨강)
         (40, 155, 40),   # 펜 3 (초록)
+        (20, 20, 20),    # 펜 4 (검정 - 캘리그라피)
     ]
     for idx, strokes in enumerate(pen_groups):
         color = pen_colors[idx % len(pen_colors)]
@@ -864,11 +865,14 @@ def run_robot_drawing(
             contact_pose = measure_floor_height_with_stick()
             return_to_slot(stick_grip_pose, "기준 막대")
 
-        for idx in range(3):
+        for idx, strokes in enumerate(pen_groups):
+            if not strokes:
+                continue
             check_abort()
             pen_name = f"펜 {idx + 1}"
             pick_from_slot(pen_poses[idx], pen_name)
-            draw_stroke_group(pen_name, pen_groups[idx], contact_pose, PEN_Z_OFFSETS[idx])
+            z_off = PEN_Z_OFFSETS[idx] if idx < len(PEN_Z_OFFSETS) else PEN_Z_OFFSETS[-1]
+            draw_stroke_group(pen_name, strokes, contact_pose, z_off)
             return_to_slot(pen_poses[idx], pen_name)
 
         movej(posj(HOME_JOINTS), vel=J_VEL, acc=J_ACC)
@@ -922,8 +926,8 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     stick_pose = [float(v) for v in _load_json(STICK_FILE, "기준 막대 위치")[:6]]
     pen_data = _load_json(PENS_FILE, "펜 위치")
-    if len(pen_data) != 3:
-        raise ValueError(f"펜 위치 개수가 3개가 아닙니다: {PENS_FILE}")
+    if len(pen_data) not in (3, 4):
+        raise ValueError(f"펜 위치 개수가 3개 또는 4개가 아닙니다: {PENS_FILE}")
     pen_poses = [[float(v) for v in p[:6]] for p in pen_data]
 
     cal = _load_json(CALIBRATION_FILE, "9점 캘리브레이션")
@@ -933,9 +937,25 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     strokes_px = load_strokes_from_input(args.input)
     strokes_mm = fit_strokes_to_rect(strokes_px, safe_rect)
-    pen_groups = split_strokes_evenly(strokes_mm, num_parts=3)
-    if SORT_NEAREST_STROKES:
-        pen_groups = [sort_strokes_nearest(g) for g in pen_groups]
+
+    pen_ids = None
+    if args.input.lower().endswith(".json"):
+        with open(args.input, "r", encoding="utf-8") as f:
+            pen_ids = json.load(f).get("pen_ids")
+
+    if isinstance(pen_ids, list) and len(pen_ids) == len(strokes_mm) and "PEN_4" in pen_ids:
+        art_strokes = [st for st, pid in zip(strokes_mm, pen_ids) if pid != "PEN_4"]
+        text_strokes = [st for st, pid in zip(strokes_mm, pen_ids) if pid == "PEN_4"]
+        art_groups = split_strokes_evenly(art_strokes, num_parts=3) if art_strokes else [[], [], []]
+        if SORT_NEAREST_STROKES:
+            art_groups = [sort_strokes_nearest(g) for g in art_groups]
+        if len(pen_poses) < 4:
+            raise ValueError(f"4번째 펜(검은색 글씨용) 슬롯 좌표가 없습니다. {PENS_FILE}에 4번째 좌표를 추가하세요.")
+        pen_groups = art_groups + [text_strokes]
+    else:
+        pen_groups = split_strokes_evenly(strokes_mm, num_parts=3)
+        if SORT_NEAREST_STROKES:
+            pen_groups = [sort_strokes_nearest(g) for g in pen_groups]
 
     preview_path, archived_path = save_drawing_preview(pen_groups, safe_rect, args.input)
     print(

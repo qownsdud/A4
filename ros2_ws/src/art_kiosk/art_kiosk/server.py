@@ -41,7 +41,7 @@ app.include_router(workflow_router)
 @app.middleware("http")
 async def private_responses(request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/", "/admin")):
+    if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
@@ -51,12 +51,6 @@ async def private_responses(request, call_next):
         "connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
     )
     return response
-
-
-@app.get("/admin")
-def serve_admin_ui() -> FileResponse:
-    # 관리자 상태·미디어·제어 API는 각각 서버에서 권한을 검사합니다.
-    return FileResponse(STATIC_DIR / "admin.html")
 
 
 def _compute_black_ratio(png_bytes: bytes) -> float:

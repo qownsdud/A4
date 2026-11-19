@@ -17,7 +17,7 @@ class DoosanMotionControl:
     이 두 필수 연결이 없으면 생성할 수 없습니다. 필압·그리퍼 출력은 여기서 변경하지 않습니다.
     """
     def __init__(self, node, *, ready, stop_and_lift, motion_complete, prefix='/dsr01/dsr_controller2',
-                 timeout=3., linear_tolerance_mm=.1, angular_tolerance_deg=.1):
+                 timeout=8., linear_tolerance_mm=2., angular_tolerance_deg=2.):
         if not callable(ready) or not callable(stop_and_lift) or not callable(motion_complete):
             raise ValueError('장비 준비와 정지·이격 검증 함수가 필요합니다.')
         if not all(math.isfinite(v) and v>0 for v in (timeout,linear_tolerance_mm,angular_tolerance_deg)):
@@ -68,7 +68,7 @@ class DoosanMotionControl:
         previous=None
         for _ in range(3):
             pose,velocity=self.observed(deadline)
-            if any(abs(v)>.01 for v in velocity):
+            if any(abs(v)>1.0 for v in velocity):
                 raise RuntimeError('MOTION_NOT_STATIONARY')
             if previous is not None and not self.same_pose(previous,pose):
                 raise RuntimeError('HOLD_POSE_CHANGED')
@@ -80,6 +80,25 @@ class DoosanMotionControl:
         # 같은 자세 표현을 요구합니다. 다른 오일러 표현은 자동 동등 처리하지 않고 거절합니다.
         return (math.dist(a[:3],b[:3])<=self.linear_tolerance
                 and max(abs(x-y) for x,y in zip(a[3:],b[3:]))<=self.angular_tolerance)
+
+    def _wait_stationary(self, deadline):
+        while True:
+            try:
+                return self.stationary(deadline)
+            except RuntimeError as exc:
+                if str(exc) not in ('MOTION_NOT_STATIONARY', 'HOLD_POSE_CHANGED') or time.monotonic() >= deadline:
+                    raise
+                time.sleep(.05)
+
+    def _call_with_retry(self, key, deadline, **fields):
+        rejected = f'DRIVER_REJECTED_{key.upper()}'
+        while True:
+            try:
+                return self.call(key, deadline, **fields)
+            except RuntimeError as exc:
+                if str(exc) != rejected or time.monotonic() >= deadline:
+                    raise
+                time.sleep(.1)
 
     def pause(self, inflight):
         deadline=time.monotonic()+self.timeout
@@ -95,48 +114,51 @@ class DoosanMotionControl:
             time.sleep(.02)
         pending=inflight and status in (1,2)
         if pending:
-            self.call('pause',deadline)
+            self._call_with_retry('pause',deadline)
         # 서비스 수락 직후 감속이 끝날 때까지 전체 deadline 안에서 관측합니다.
-        while True:
-            try:
-                pose=self.stationary(deadline)
-                return HoldSnapshot(pose,bool(pending))
-            except RuntimeError as exc:
-                if str(exc) not in ('MOTION_NOT_STATIONARY','HOLD_POSE_CHANGED') or time.monotonic()>=deadline:
-                    raise
-                time.sleep(.02)
+        pose=self._wait_stationary(deadline)
+        return HoldSnapshot(pose,bool(pending))
 
     def resume(self, hold, inflight):
         if not isinstance(hold,HoldSnapshot):
             raise RuntimeError('NO_RETAINED_PATH')
         deadline=time.monotonic()+self.timeout
-        pose=self.stationary(deadline)
+        pose=self._wait_stationary(deadline)
         if not self.same_pose(hold.pose,pose):
             raise RuntimeError('PAUSED_POSE_CHANGED')
         if hold.pending_motion:
             if not inflight:
                 raise RuntimeError('PATH_CONTEXT_LOST')
-            self.call('resume',deadline)
-            # 수락 응답만으로 DRAWING을 표시하지 않습니다. 실제 속도 또는
+            self._call_with_retry('resume',deadline)
+            # 수락 응답만으로 DRAWING을 표시하지 않습니다. 실제 모션/속도 또는
             # 생산자가 보유한 동일 목표의 도달 확인이 있어야 재개를 확정합니다.
             while True:
+                status=int(self.call('motion',deadline).status)
+                if status in (1,2) or self.motion_complete() is True:
+                    return
                 _,velocity=self.observed(deadline)
                 if any(abs(v)>.01 for v in velocity) or self.motion_complete() is True:
                     return
                 if time.monotonic()>=deadline:
                     raise RuntimeError('RESUME_UNCONFIRMED')
-                time.sleep(.02)
+                time.sleep(.05)
 
     def stop(self):
         deadline=time.monotonic()+self.timeout
-        self.call('stop',deadline,stop_mode=2)
-        while True:
-            status=int(self.call('motion',deadline).status)
-            if status==0:
-                break
-            if time.monotonic()>=deadline:
-                raise RuntimeError('STOP_UNCONFIRMED')
-            time.sleep(.02)
-        self.stationary(deadline)
+        status=int(self.call('motion',deadline).status)
+        if status!=0:
+            try:
+                self.call('stop',deadline,stop_mode=2)
+            except RuntimeError as exc:
+                if str(exc)!='DRIVER_REJECTED_STOP':
+                    raise
+            while True:
+                status=int(self.call('motion',deadline).status)
+                if status==0:
+                    break
+                if time.monotonic()>=deadline:
+                    raise RuntimeError('STOP_UNCONFIRMED')
+                time.sleep(.02)
+        self._wait_stationary(deadline)
         # IDLE만으로 펜 이격을 꾸며내지 않습니다.
         return self.stop_and_lift() is True

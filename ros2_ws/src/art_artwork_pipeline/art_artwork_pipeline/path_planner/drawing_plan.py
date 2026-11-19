@@ -17,6 +17,7 @@ from pathlib import Path
 
 PAPER = (210.0, 297.0)
 PENS = ('PEN_1', 'PEN_2', 'PEN_3')
+ALL_PENS = ('PEN_1', 'PEN_2', 'PEN_3', 'PEN_4')
 FRAME = 'paper_top_left_x_right_y_down'
 _ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 
@@ -120,7 +121,7 @@ def validate_plan(plan):
     for number, stroke in enumerate(strokes, 1):
         if not isinstance(stroke, dict) or type(stroke.get('stroke_id')) is not int or stroke['stroke_id'] != number:
             raise ValueError('invalid stroke_id sequence')
-        if stroke.get('pen_id') not in PENS:
+        if stroke.get('pen_id') not in ALL_PENS:
             raise ValueError('invalid pen_id')
         if 'execution_order' in stroke and (type(stroke['execution_order']) is not int or stroke['execution_order'] != number - 1):
             raise ValueError('invalid execution_order')

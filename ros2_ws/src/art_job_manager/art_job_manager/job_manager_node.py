@@ -65,8 +65,10 @@ class JobManagerNode(Node):
         self._lock = threading.RLock()
         self._goal_handles: dict[str, object] = {}
         self._execution_ids: dict[str, str] = {}
+        self._last_job_id: str | None = None
 
         self._status_pub = self.create_publisher(JobStatus, "/art/job_status", 10)
+        self._status_timer = self.create_timer(1.0, self._on_status_timer, callback_group=self._cb_group)
         self._create_srv = self.create_service(
             CreateJob, "/art/create_job", self._on_create_job, callback_group=self._cb_group
         )
@@ -81,10 +83,18 @@ class JobManagerNode(Node):
         )
         self.get_logger().info("JobManagerNode 준비 완료 (인메모리 중앙 제어 + 단방향 결정 포트)")
 
+    def _on_status_timer(self) -> None:
+        snap = self.machine.active_job()
+        job_id = snap.job_id if snap is not None else self._last_job_id
+        if job_id:
+            self._publish_status(job_id)
+
     def _publish_status(self, job_id: str) -> None:
         snap = self.machine.status(job_id)
         if snap is None or not rclpy.ok():
             return
+        with self._lock:
+            self._last_job_id = job_id
         msg = JobStatus(
             job_id=snap.job_id,
             state=snap.state,
@@ -163,7 +173,6 @@ class JobManagerNode(Node):
             event=fb.event,
             stroke_id=int(fb.stroke_id),
             pen_id=fb.pen_id,
-            pen_up_confirmed=bool(fb.pen_up_confirmed),
             message=fb.message,
         ):
             self._publish_status(job_id)
@@ -181,7 +190,6 @@ class JobManagerNode(Node):
                 success=bool(res.success),
                 final_state=res.final_state,
                 completed_strokes=int(res.completed_strokes),
-                pen_up_confirmed=bool(res.pen_up_confirmed),
                 error_code=res.error_code,
                 message=res.message,
             )
@@ -197,10 +205,22 @@ class JobManagerNode(Node):
             return response
 
         self._publish_status(request.job_id)
-        if cmd in ("PAUSE", "RESUME"):
+        if cmd == "RESUME":
+            with self._lock:
+                has_goal = request.job_id in self._goal_handles
+            if not has_goal:
+                self._dispatch_job(request.job_id)
+            else:
+                self._send_control_drawing(request.job_id, cmd, request.request_id)
+        elif cmd == "PAUSE":
             self._send_control_drawing(request.job_id, cmd, request.request_id)
         elif cmd == "CANCEL" and reply.state == "STOPPING":
-            self._send_cancel_goal(request.job_id)
+            with self._lock:
+                has_goal = request.job_id in self._goal_handles
+            if has_goal:
+                self._send_cancel_goal(request.job_id)
+            else:
+                self._send_control_drawing(request.job_id, "RECOVER", request.request_id)
         return response
 
     def _send_control_drawing(self, job_id: str, cmd: str, request_id: str) -> None:

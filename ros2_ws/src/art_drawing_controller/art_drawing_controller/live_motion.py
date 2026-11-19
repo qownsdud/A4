@@ -16,6 +16,7 @@ class LiveMotionSession:
         self.state = 'RUNNING'
         self.inflight = False
         self.hold = None
+        self._parked = False
         self.receipts = OrderedDict()
         self.operation = threading.Lock()
 
@@ -35,14 +36,22 @@ class LiveMotionSession:
     def complete_motion(self):
         """모션 완료 응답만으로 호출하지 말고 실제 목표 도달을 확인해야 합니다."""
         with self.condition:
-            if self.state != 'RUNNING' or not self.inflight:
+            if self.state not in ('RUNNING', 'PAUSING') or not self.inflight:
                 return False
             self.inflight = False
             return True
 
+    def mark_parked(self):
+        """현재 모션을 마치고 홈 복귀까지 완료했음을 알립니다."""
+        with self.condition:
+            if self.state == 'PAUSING':
+                self._parked = True
+                self.state = 'PAUSED'
+                self.condition.notify_all()
+
     def wait_running(self, timeout=.1):
         with self.condition:
-            self.condition.wait_for(lambda: self.state in ('RUNNING','STOPPING','STOPPED','FAILED','FINISHED'), timeout)
+            self.condition.wait_for(lambda: self.state in ('RUNNING','PAUSING','STOPPING','STOPPED','FAILED','FINISHED'), timeout)
             return self.state == 'RUNNING'
 
     def control(self, execution_id, command, request_id):
@@ -50,8 +59,8 @@ class LiveMotionSession:
             return False, 'UNKNOWN', 'EXECUTION_MISMATCH'
         if command not in ('PAUSE','RESUME') or not request_id or len(request_id)>64:
             return False, 'UNKNOWN', 'INVALID_COMMAND'
-        # 중복 요청은 드라이버를 다시 호출하지 않습니다. 동시에 온 다른 명령은 거절합니다.
-        if not self.operation.acquire(blocking=False):
+        # 중복 요청은 드라이버를 다시 호출하지 않습니다. 진행 중인 제어 전환이 있으면 잠시 대기합니다.
+        if not self.operation.acquire(timeout=8.0):
             return False, 'UNKNOWN', 'CONTROL_BUSY'
         try:
             with self.condition:
@@ -66,29 +75,32 @@ class LiveMotionSession:
                 expected = 'RUNNING' if command == 'PAUSE' else 'PAUSED'
                 if self.state != expected:
                     return False, 'UNKNOWN', 'INVALID_TRANSITION'
-                self.state = 'PAUSING' if command == 'PAUSE' else 'RESUMING'
-                inflight = self.inflight
-            try:
                 if command == 'PAUSE':
-                    observed = self.adapter.pause(inflight)
-                else:
-                    self.adapter.resume(self.hold, inflight)
-                    observed = None
-                with self.condition:
-                    # 취소 요청이 들어온 뒤 지연된 재개 응답으로 생산 게이트를 열지 않습니다.
+                    self._parked = False
+                    self.state = 'PAUSING'
+                    self.condition.notify_all()
+                    # 진행 중인 모션을 끝까지 마치고 홈으로 복귀할 때까지 대기합니다.
+                    self.condition.wait_for(
+                        lambda: self._parked or self.state in ('PAUSED', 'STOPPING', 'STOPPED', 'FAILED', 'FINISHED'),
+                        timeout=30.0,
+                    )
                     if self.state == 'STOPPING':
-                        result = (False,'UNKNOWN','CANCEL_PENDING')
+                        result = (False, 'UNKNOWN', 'CANCEL_PENDING')
+                    elif self.state == 'PAUSED' or self._parked:
+                        self.state = 'PAUSED'
+                        result = (True, 'PAUSED', '')
                     else:
-                        self.hold = observed
-                        self.state = 'PAUSED' if command == 'PAUSE' else 'RUNNING'
-                        result = (True, 'PAUSED' if command == 'PAUSE' else 'DRAWING', '')
+                        if self.state == 'PAUSING':
+                            self.state = 'RUNNING'
+                        result = (False, 'UNKNOWN', 'PAUSE_TIMEOUT')
                     self.condition.notify_all()
-            except Exception as exc:
-                with self.condition:
-                    if self.state != 'STOPPING':
-                        self.state = 'FAILED'
+                else:
+                    if self.state == 'STOPPING':
+                        result = (False, 'UNKNOWN', 'CANCEL_PENDING')
+                    else:
+                        self.state = 'RUNNING'
+                        result = (True, 'DRAWING', '')
                     self.condition.notify_all()
-                result = (False,'UNKNOWN',str(exc)[:120])
             self.receipts[request_id] = (command,result)
             # 같은 실행 도중 영수증을 버리면 오래된 재개가 재실행될 수 있으므로 상한 초과 시 닫습니다.
             if len(self.receipts)>10000:
@@ -107,7 +119,7 @@ class LiveMotionSession:
                 self.condition.notify_all()
 
     def cancel(self):
-        """Action Cancel 처리 경로. 실제 정지·이격을 확인한 경우만 true입니다."""
+        """Action Cancel 처리 경로. 실제 정지를 확인한 경우만 true입니다."""
         with self.condition:
             if self.state == 'STOPPED':
                 return True

@@ -208,7 +208,7 @@ def prepare_artwork(job_id, *, stage, input_path, root=None, method='cv', paper=
                           artwork_box_mm=box, max_stroke_mm=55.0)
         # 앞단 픽셀 단순화(eps=1.5) 결과를 유지하기 위해 mm 재단순화는 비활성화
         plan = optimize_plan(plan, backend='opencv', simplify_tolerance_mm=0.0, max_strokes=None, curve_step_mm=0)
-        plan['strokes'].extend(generate_strokes(text, origin=placement['text_origin'], bounds_mm=placement['text_bounds'],paper_size_mm=placement['size']))
+        plan['strokes'].extend(generate_strokes(text, origin=placement['text_origin'], bounds_mm=placement['text_bounds'], paper_size_mm=placement['size'], pen_id='PEN_4'))
         for i, stroke in enumerate(plan['strokes']):
             stroke.update(stroke_id=i+1,execution_order=i)
         validate_plan(plan)

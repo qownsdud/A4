@@ -13,7 +13,7 @@ from .plan_validator import PlanError, default_plan_root, load_plan
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _ACTIVE_STATES = frozenset(
-    {"QUEUED", "DISPATCHING", "DRAWING", "PAUSING", "PAUSED", "RESUMING", "STOPPING"}
+    {"QUEUED", "DISPATCHING", "DRAWING", "PAUSING", "PAUSED", "RESUMING", "STOPPING", "FORCE_STOPPED"}
 )
 _TERMINAL_STATES = frozenset({"COMPLETED", "STOPPED"})
 
@@ -175,7 +175,7 @@ class JobStateMachine:
     def prepare_dispatch(self, job_id: str) -> DispatchRequest | None:
         with self._lock:
             snap = self._jobs.get(job_id)
-            if snap is None or snap.state != "QUEUED":
+            if snap is None or snap.state not in ("QUEUED", "RESUMING"):
                 return None
             try:
                 summary = load_plan(job_id, snap.plan_path, plan_root=self._plan_root)
@@ -206,7 +206,6 @@ class JobStateMachine:
         event: str,
         stroke_id: int = 0,
         pen_id: str = "",
-        pen_up_confirmed: bool = False,
         message: str = "",
     ) -> bool:
         with self._lock:
@@ -231,9 +230,15 @@ class JobStateMachine:
                 snap.updated_at = now
                 return True
 
+            if event == "EXTERNAL_FORCE_STOP":
+                snap.state = "FORCE_STOPPED"
+                snap.error_code = "EXTERNAL_FORCE_DETECTED"
+                snap.message = message or "외력 감지로 즉시 정지했습니다."
+                snap.updated_at = now
+                self._emit("EXTERNAL_FORCE_STOP", snap)
+                return True
+
             if event == "STROKE_COMPLETED":
-                if not pen_up_confirmed:
-                    return False
                 if stroke_id != snap.completed_strokes + 1 or stroke_id > snap.total_strokes:
                     return False
                 snap.completed_strokes = stroke_id
@@ -296,9 +301,10 @@ class JobStateMachine:
             return CommandReply(True, snap.job_id, "PAUSING", "", snap.message)
 
         if cmd == "RESUME":
-            if snap.state != "PAUSED":
-                return CommandReply(False, snap.job_id, snap.state, "INVALID_TRANSITION", "일시정지 상태에서만 재개할 수 있습니다.")
+            if snap.state not in ("PAUSED", "FORCE_STOPPED"):
+                return CommandReply(False, snap.job_id, snap.state, "INVALID_TRANSITION", "일시정지 또는 외력 정지 상태에서만 재개할 수 있습니다.")
             snap.state = "RESUMING"
+            snap.error_code = ""
             snap.message = "재개 요청 전달 중"
             snap.updated_at = now
             return CommandReply(True, snap.job_id, "RESUMING", "", snap.message)
@@ -307,11 +313,11 @@ class JobStateMachine:
         if snap.state in _TERMINAL_STATES:
             return CommandReply(True, snap.job_id, snap.state, "", "이미 종료된 작업입니다.")
         if snap.state == "QUEUED":
-            self._finish(snap, "STOPPED", "CANCELED", "실행 전 취소되었습니다.")
+            self._finish(snap, "STOPPED", "CANCELED", "사용자 요청으로 중단되었습니다.")
             return CommandReply(True, snap.job_id, "STOPPED", "", snap.message)
 
         snap.state = "STOPPING"
-        snap.message = "작업 중단 요청 전달 중"
+        snap.message = "도구 반납 및 홈 복귀 중" if snap.error_code == "EXTERNAL_FORCE_DETECTED" else "작업 중단 요청 전달 중"
         snap.updated_at = now
         return CommandReply(True, snap.job_id, "STOPPING", "", snap.message)
 
@@ -341,6 +347,13 @@ class JobStateMachine:
                 snap.message = message or ("재개 확인됨" if accepted else "재개 요청이 거절되었습니다.")
                 snap.updated_at = now
                 self._emit("CONTROL_APPLIED", snap, command=command)
+            elif command == "RECOVER" and snap.state == "STOPPING":
+                self._finish(
+                    snap,
+                    "STOPPED",
+                    "" if accepted else (error_code or "RECOVER_FAILED"),
+                    "도구 반납 및 홈 복귀 완료" if accepted else (message or "원상복구 실패"),
+                )
 
     def on_action_result(
         self,
@@ -350,7 +363,6 @@ class JobStateMachine:
         success: bool,
         final_state: str,
         completed_strokes: int,
-        pen_up_confirmed: bool,
         error_code: str = "",
         message: str = "",
     ) -> bool:
@@ -364,13 +376,20 @@ class JobStateMachine:
                 and success
                 and final_state == "COMPLETED"
                 and completed_strokes == snap.total_strokes
-                and pen_up_confirmed
             ):
                 self._finish(snap, "COMPLETED", "", "드로잉이 정상 완료되었습니다.")
                 return True
 
-            if snap.state == "STOPPING" and final_state == "INTERRUPTED_SAFE" and pen_up_confirmed:
-                self._finish(snap, "STOPPED", "", "안전 중단 및 펜 이격 확인 완료")
+            if error_code == "EXTERNAL_FORCE_DETECTED" and snap.state != "STOPPING":
+                snap.state = "FORCE_STOPPED"
+                snap.error_code = "EXTERNAL_FORCE_DETECTED"
+                snap.message = message or "외력 감지로 즉시 정지했습니다. 확인 후 재개 또는 정지를 선택하세요."
+                snap.updated_at = time.time()
+                self._emit("EXTERNAL_FORCE_STOP", snap)
+                return False
+
+            if snap.state == "STOPPING" and final_state == "INTERRUPTED_SAFE":
+                self._finish(snap, "STOPPED", "", "안전 중단 완료")
                 return True
 
             self._finish(

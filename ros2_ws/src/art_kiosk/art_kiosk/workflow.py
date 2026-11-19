@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
+import math
 import os
 import secrets
 import time
@@ -29,6 +30,45 @@ from .hmi_api import (
 router = APIRouter()
 TERMINAL = ('COMPLETED', 'STOPPED')
 SUBMITTED = ('SUBMITTING', 'UNKNOWN_SUBMISSION', 'REGISTERED')
+_PLAN_LENGTH_CACHE: dict[str, tuple[int, list[float]]] = {}
+
+
+def _plan_length_progress(plan_path, completed_strokes: int) -> dict | None:
+    """drawing_plan.json의 누적 선 길이(mm)를 기준으로 진행률(%)을 계산합니다."""
+    try:
+        stat = plan_path.stat()
+    except OSError:
+        return None
+    key = str(plan_path)
+    cached = _PLAN_LENGTH_CACHE.get(key)
+    if cached is not None and cached[0] == stat.st_mtime_ns:
+        cumulative = cached[1]
+    else:
+        try:
+            plan = json.loads(plan_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return None
+        cumulative = []
+        running = 0.0
+        for stroke in plan.get('strokes', []):
+            pts = stroke.get('points_mm', [])
+            running += sum(math.hypot(p2[0] - p1[0], p2[1] - p1[1]) for p1, p2 in zip(pts, pts[1:]))
+            cumulative.append(running)
+        if len(_PLAN_LENGTH_CACHE) > 8:
+            _PLAN_LENGTH_CACHE.clear()
+        _PLAN_LENGTH_CACHE[key] = (stat.st_mtime_ns, cumulative)
+
+    if not cumulative:
+        return None
+    total_mm = cumulative[-1]
+    idx = max(0, min(int(completed_strokes), len(cumulative)))
+    done_mm = cumulative[idx - 1] if idx > 0 else 0.0
+    pct = round((done_mm / total_mm) * 100.0, 1) if total_mm > 0 else 0.0
+    return {
+        'completed_length_mm': round(done_mm, 1),
+        'total_length_mm': round(total_mm, 1),
+        'progress_percent': pct,
+    }
 
 
 def state_path():
@@ -126,17 +166,25 @@ def prepare_response(data):
     }
 
 
+def _validate_detail(detail: str) -> str:
+    value = str(detail).strip()
+    if value in ('high', 'medium', 'low'):
+        return value
+    if value.isdigit() and 0 <= int(value) <= 100:
+        return str(int(value))
+    raise HTTPException(422, '디테일은 0~100 또는 high/medium/low여야 합니다.')
+
+
 @router.post('/api/kiosk/prepare')
 async def prepare(
     request: Request, photo: UploadFile = File(...), text: str = Form(''),
-    detail: str = Form('medium'), request_id: str = Form(''), paper: str = Form(LANDSCAPE),
+    detail: str = Form('50'), request_id: str = Form(''), paper: str = Form(LANDSCAPE),
 ):
     check_origin(request)
     request_id = request_id or str(uuid.uuid4())
     check_id(request_id)
     text = text.strip()
-    if detail not in ('high', 'medium', 'low'):
-        raise HTTPException(422, '지원하지 않는 디테일입니다.')
+    detail = _validate_detail(detail)
     try:
         placement=layout(paper,bool(text))
         generate_strokes(text, origin=placement['text_origin'],bounds_mm=placement['text_bounds'],paper_size_mm=placement['size'])
@@ -313,6 +361,9 @@ async def current_snapshot(request):
     if data['phase'] in SUBMITTED:
         try:
             status = await observed_status(request, data['job_id'])
+            length_info = _plan_length_progress(artifact(data, 'drawing_plan.json'), status['completed_strokes'])
+            if length_info:
+                status.update(length_info)
             result['status'] = status
             result['can_prepare'] = not (
                 status['state_confirmed'] and not status['stale'] and status['state'] not in TERMINAL
@@ -358,6 +409,7 @@ class CurrentControl(ControlBody):
     expected_job_id: str = Field(min_length=1, max_length=64)
 
 
+@router.post('/api/kiosk/current/control', dependencies=[Depends(require_same_origin)], status_code=202)
 @router.post('/api/admin/current/control', dependencies=[Depends(require_same_origin)], status_code=202)
 async def control(body: CurrentControl, request: Request):
     with workflow_lock():
@@ -365,7 +417,9 @@ async def control(body: CurrentControl, request: Request):
         if not data or data['job_id'] != body.expected_job_id or data['phase'] not in SUBMITTED:
             raise HTTPException(409, '제어 대상 작업이 바뀌었거나 아직 등록되지 않았습니다.')
         status = await observed_status(request, data['job_id'])
-        if status['stale'] or not status['state_confirmed']:
+        if status['stale']:
+            raise HTTPException(409, '현재 상태가 오래되어 제어를 중계하지 않았습니다.')
+        if not status['state_confirmed'] and status['state'] not in ('FORCE_STOPPED', 'RECOVERY_REQUIRED'):
             raise HTTPException(409, '현재 상태가 미확정이어서 제어를 중계하지 않았습니다.')
         response = await bridge_request(request, 'POST', f"/bridge/jobs/{data['job_id']}/control", body={
             'command': body.command, 'request_id': body.request_id,

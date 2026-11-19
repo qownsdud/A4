@@ -20,7 +20,7 @@ if not 1 <= _BRIDGE_PORT <= 65535:
 BRIDGE_URL = f"http://127.0.0.1:{_BRIDGE_PORT}"
 ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
 STATES = Literal["QUEUED", "DISPATCHING", "DRAWING", "PAUSING", "PAUSED", "RESUMING",
-                 "STOPPING", "STOPPED", "COMPLETED", "RECOVERY_REQUIRED"]
+                 "STOPPING", "STOPPED", "COMPLETED", "FORCE_STOPPED", "RECOVERY_REQUIRED"]
 
 
 class ControlBody(BaseModel):
@@ -139,7 +139,7 @@ async def observed_status(request: Request, job_id: str):
     age = time.time() - status.observed_at_unix
     # 서버 설정이 잘못되어도 오래된 정보를 최신으로 표시하지 않습니다.
     try:
-        max_age = float(os.environ.get("ART_STATUS_MAX_AGE_SEC", "5"))
+        max_age = float(os.environ.get("ART_STATUS_MAX_AGE_SEC", "15"))
         if not math.isfinite(max_age) or max_age <= 0:
             raise ValueError("양수 필요")
     except ValueError as exc:

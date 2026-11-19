@@ -11,8 +11,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'controller_mode',
-            default_value='standalone',
-            description='실행기 선택: standalone(draw_image_standalone.py 연동) 또는 ros(art_drawing_controller)',
+            default_value='ros',
+            description='실행기 선택: ros(일시정지·재개·외력감지 지원) 또는 standalone(draw_image_standalone.py 연동)',
         ),
         DeclareLaunchArgument(
             'virtual',
