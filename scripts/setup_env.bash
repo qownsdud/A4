@@ -141,33 +141,10 @@ else
   log "5/6 ROS 2 빌드 건너뜀 (--skip-build)"
 fi
 
-# 7. 현재 PC 경로 기준 바탕화면 및 앱 메뉴 런처 생성
-log "6/6 바탕화면 실행 아이콘 등록"
+# 7. 실행 스크립트 권한 설정 및 기존 바탕화면 아이콘 정리
+log "6/6 서버 실행 스크립트 권한 설정"
 chmod +x "$A4_ROOT/scripts/launch_a4_app.bash" "$A4_ROOT/scripts/stop_a4_app.bash" "$A4_ROOT/scripts/setup_env.bash" 2>/dev/null || true
-
-DESKTOP_ENTRY="[Desktop Entry]
-Version=1.0
-Type=Application
-Name=A4 Drawing Studio
-Comment=두산 로봇 A4 퍼즐 드로잉 키오스크 실행
-Exec=$A4_ROOT/scripts/launch_a4_app.bash
-Icon=$A4_ROOT/scripts/a4_app_icon.svg
-Terminal=false
-Categories=Utility;Graphics;
-StartupWMClass=A4DrawingStudio
-"
-
-mkdir -p "$HOME/.local/share/applications"
-printf "%s" "$DESKTOP_ENTRY" > "$HOME/.local/share/applications/a4-drawing.desktop"
-chmod +x "$HOME/.local/share/applications/a4-drawing.desktop"
-
-if [[ -d "$HOME/Desktop" ]]; then
-  printf "%s" "$DESKTOP_ENTRY" > "$HOME/Desktop/A4_Drawing.desktop"
-  chmod +x "$HOME/Desktop/A4_Drawing.desktop"
-  if command -v gio >/dev/null 2>&1; then
-    gio set "$HOME/Desktop/A4_Drawing.desktop" metadata::trusted true 2>/dev/null || true
-  fi
-fi
+rm -f "$HOME/Desktop/A4_Drawing.desktop" "$HOME/바탕화면/A4_Drawing.desktop" "$HOME/.local/share/applications/a4-drawing.desktop" 2>/dev/null || true
 
 # 최종 자체 점검
 log "환경 자체 점검 실행 중..."
@@ -194,8 +171,5 @@ fi
 if [[ -f "$FONT_SRC" ]]; then
   echo "  [OK] 붓글씨 내장 폰트 정상 ($FONT_SRC)"
 fi
-if ! command -v google-chrome >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
-  echo "  [안내] Google Chrome 또는 Chromium이 설치되어 있지 않습니다. 앱 창 실행을 위해 Chrome 설치를 권장합니다."
-fi
 
-echo -e "\n[완료] 모든 준비가 끝났습니다. 바탕화면의 'A4 Drawing Studio' 아이콘을 더블클릭해 실행하세요."
+echo -e "\n[완료] 모든 준비가 끝났습니다. 터미널에서 '$A4_ROOT/scripts/launch_a4_app.bash'를 실행해 서버를 가동하세요."

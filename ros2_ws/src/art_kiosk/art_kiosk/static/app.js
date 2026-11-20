@@ -138,12 +138,13 @@
     $('btnDraw').disabled = !state.ticket || state.readyRevision !== state.revision
       || state.preparing || state.submitting;
     for (const id of ['photoFileInput', 'calligraphyText', 'detailSelect', 'btnResetAll', 'btnStartCam', 'btnMirror', 'btnRetake']) {
-      $(id).disabled = state.submitting;
+      $(id).disabled = state.submitting || state.blocked;
     }
-    $('btnCaptureNow').disabled = !state.stream || state.submitting || Boolean(state.countdown);
+    $('btnCaptureNow').disabled = !state.stream || state.submitting || state.blocked || Boolean(state.countdown);
     $('btnCaptureTimer').disabled = $('btnCaptureNow').disabled;
     const snapshot = state.snapshot;
     const previousTerminal = snapshot && snapshot.job_id !== state.jobId && ['COMPLETED', 'STOPPED'].includes(snapshot.state);
+    const ownsSnapshot = Boolean(snapshot && state.ticket && state.jobId === snapshot.job_id);
     const force = state.forceSeen || (snapshot && (snapshot.state === 'FORCE_STOPPED' || snapshot.error_code === 'EXTERNAL_FORCE_DETECTED'));
     $('forceNotice').hidden = !force;
     for (const [id, cmd, allowed] of [
@@ -153,7 +154,7 @@
     ]) {
       const retry = controlPending && controlPending.job_id === snapshot?.job_id && controlPending.command === cmd;
       const supersede = cmd === 'CANCEL' && controlPending?.accepted && ['PAUSE', 'RESUME'].includes(controlPending.command);
-      $(id).disabled = !snapshot || previousTerminal || controlSending
+      $(id).disabled = !snapshot || !ownsSnapshot || state.blocked || previousTerminal || controlSending
         || (force && !['RESUME', 'CANCEL'].includes(cmd))
         || (controlPending ? !(retry || supersede) : !allowed.includes(snapshot.state));
     }
@@ -313,6 +314,7 @@
     $('capturedPreview').src = state.photoUrl;
     $('capturedPreview').hidden = false;
     $('camVideo').hidden = true;
+    if ($('cameraGuide')) $('cameraGuide').hidden = true;
     $('camPlaceholder').hidden = true;
     $('btnRetake').hidden = false;
     invalidate();
@@ -320,6 +322,11 @@
   $('photoFileInput').addEventListener('change', () => {
     if (state.blocked) return;
     const file = $('photoFileInput').files?.[0];
+    if (file) setPhoto(file);
+  });
+  $('cameraCaptureInput')?.addEventListener('change', () => {
+    if (state.blocked) return;
+    const file = $('cameraCaptureInput').files?.[0];
     if (file) setPhoto(file);
   });
   $('calligraphyText').addEventListener('input', invalidate);
@@ -338,12 +345,20 @@
   $('btnStartCam').addEventListener('click', async () => {
     if (state.blocked) return;
     try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error('카메라를 사용할 수 없습니다. 사진을 첨부하세요.');
+      if (!navigator.mediaDevices?.getUserMedia) {
+        if ($('cameraCaptureInput')) {
+          $('cameraCaptureInput').value = '';
+          $('cameraCaptureInput').click();
+          return;
+        }
+        throw new Error('카메라를 사용할 수 없습니다. https 주소로 접속하거나 사진을 첨부하세요.');
+      }
       const stream = await navigator.mediaDevices.getUserMedia({video: {width:{ideal:1280},height:{ideal:720},facingMode: 'user'}, audio: false});
       if (state.stream) state.stream.getTracks().forEach(track => track.stop());
       state.stream = stream;
       $('camVideo').srcObject = stream;
       $('camVideo').hidden = false;
+      if ($('cameraGuide')) $('cameraGuide').hidden = false;
       $('capturedPreview').hidden = true;
       $('camPlaceholder').hidden = true;
       mirror();
@@ -390,8 +405,10 @@
     state.photo = null;
     state.pending = false;
     $('photoFileInput').value = '';
+    if ($('cameraCaptureInput')) $('cameraCaptureInput').value = '';
     $('capturedPreview').hidden = true;
     $('camVideo').hidden = !state.stream;
+    if ($('cameraGuide')) $('cameraGuide').hidden = !state.stream;
     $('camPlaceholder').hidden = Boolean(state.stream);
     $('btnRetake').hidden = true;
     invalidate();
@@ -429,7 +446,7 @@
     try {
       await api('/api/kiosk/current/control', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-Preview-Ticket': state.ticket},
         body: JSON.stringify({
           expected_job_id: snapshot.job_id,
           command: cmd,
@@ -462,6 +479,16 @@
         'X-Prepare-Request': state.preparing ? state.inflightRequestId : state.requestId,
       }});
       state.lastPhase = data.phase;
+      const ownsCurrent = Boolean(state.ticket && state.jobId && data.job_id === state.jobId);
+      const wasBlocked = state.blocked;
+      state.blocked = data.can_prepare === false && !ownsCurrent;
+      if (state.blocked && !state.preparing) {
+        $('prepareStatus').textContent = '다른 사용자가 현재 그리기를 진행 중입니다. 완료 또는 정지 후 새 작업을 시작할 수 있습니다.';
+      } else if (wasBlocked && !state.blocked && !state.preparing && state.readyRevision !== state.revision) {
+        $('prepareStatus').textContent = state.photo
+          ? "설정이 준비되었습니다. '경로 추출' 버튼을 눌러주세요."
+          : "사진을 입력한 뒤 '경로 추출' 버튼을 눌러주세요.";
+      }
       if (state.preparing && data.phase === 'PREPARING' && data.prepare_progress
           && data.prepare_request_id === state.inflightRequestId) {
         state.serverPrepare = {...data.prepare_progress, atMs: performance.now()};

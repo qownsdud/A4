@@ -326,3 +326,19 @@ def test_changed_model_never_reuses_old_cv_preview(env,monkeypatch):
         assert result.status_code==422
         assert called==[('LINEART','mfl_ld')]
     asyncio.run(client_run(check))
+
+
+def test_other_client_cannot_control_active_job_and_proxy_origin_works(env):
+    engine,port=env
+    async def check(c):
+        p=await prepare(c)
+        assert (await c.post('/api/kiosk/draw',json={'ticket':p['ticket']},
+            headers={'Origin':'https://public.trycloudflare.com','X-Forwarded-Proto':'https','Host':'public.trycloudflare.com'})).status_code==202
+        job=p['job_id']
+        assert engine.prepare_dispatch(job);engine.on_controller_started(job)
+        body=dict(command='PAUSE',request_id='P1',expected_job_id=job)
+        assert (await c.post('/api/kiosk/current/control',json=body)).status_code==403
+        assert (await c.post('/api/kiosk/current/control',json=body,headers={'X-Preview-Ticket':'wrong'})).status_code==403
+        assert (await c.post('/api/kiosk/current/control',json=body,headers={'X-Preview-Ticket':p['ticket']})).status_code==202
+        assert (await c.get('/api/kiosk/current')).json()['can_prepare'] is False
+    asyncio.run(client_run(check))

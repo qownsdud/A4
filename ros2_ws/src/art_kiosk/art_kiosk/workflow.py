@@ -482,7 +482,10 @@ async def acquire_workflow_lock(wait_sec: float = 0.0):
 
 def check_origin(request):
     origin = request.headers.get('origin')
-    if ((origin and origin != str(request.base_url).rstrip('/'))
+    proto = (request.headers.get('x-forwarded-proto') or request.url.scheme).split(',')[0].strip()
+    host = (request.headers.get('x-forwarded-host') or request.headers.get('host') or request.url.netloc).split(',')[0].strip()
+    expected = {str(request.base_url).rstrip('/'), f'{proto}://{host}'}
+    if ((origin and origin not in expected)
             or request.headers.get('sec-fetch-site') == 'cross-site'):
         raise HTTPException(403, '동일 출처 요청만 허용합니다.')
 
@@ -873,6 +876,26 @@ class CurrentControl(ControlBody):
 
 
 @router.post('/api/kiosk/current/control', dependencies=[Depends(require_same_origin)], status_code=202)
+async def kiosk_control(body: CurrentControl, request: Request):
+    with workflow_lock():
+        data = read_state()
+        if not data or data['job_id'] != body.expected_job_id or data['phase'] not in SUBMITTED:
+            raise HTTPException(409, '제어 대상 작업이 바뀌었거나 아직 등록되지 않았습니다.')
+        # 현재 작업을 시작한 브라우저(티켓 보유자)만 일시정지·재개·정지로 간섭할 수 있습니다.
+        ticket = request.headers.get('x-preview-ticket', '')
+        if not ticket or not secrets.compare_digest(data['ticket'], ticket):
+            raise HTTPException(403, '현재 진행 중인 다른 사용자의 작업은 제어할 수 없습니다.')
+        status = await observed_status(request, data['job_id'])
+        if status['stale']:
+            raise HTTPException(409, '현재 상태가 오래되어 제어를 중계하지 않았습니다.')
+        if not status['state_confirmed'] and status['state'] not in ('FORCE_STOPPED', 'RECOVERY_REQUIRED'):
+            raise HTTPException(409, '현재 상태가 미확정이어서 제어를 중계하지 않았습니다.')
+        response = await bridge_request(request, 'POST', f"/bridge/jobs/{data['job_id']}/control", body={
+            'command': body.command, 'request_id': body.request_id,
+        })
+        return command_reply(response, data['job_id'])
+
+
 @router.post('/api/admin/current/control', dependencies=[Depends(require_same_origin)], status_code=202)
 async def control(body: CurrentControl, request: Request):
     with workflow_lock():

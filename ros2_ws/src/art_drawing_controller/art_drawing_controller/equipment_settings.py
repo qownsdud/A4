@@ -163,7 +163,7 @@ def load_default_equipment_settings():
             pen_slots={
                 "PEN_1": dict(pose=[567.0, 42.0, 136.7, 90.0, 180.0, 90.0], z_offset_mm=11.8),
                 "PEN_2": dict(pose=[568.0, 11.0, 136.7, 95.0, 180.0, 95.0], z_offset_mm=12.3),
-                "PEN_3": dict(pose=[568.0, -19.0, 136.7, 92.0, 180.0, 92.0], z_offset_mm=12.8),
+                "PEN_3": dict(pose=[568.0, -19.0, 136.7, 92.0, 180.0, 92.0], z_offset_mm=11.6),
                 "PEN_4": dict(pose=[568.0, -50.0, 136.7, 92.0, 180.0, 92.0], z_offset_mm=12.5),
             },
             limits_base_mm=[[-1000.0, 1000.0], [-1000.0, 1000.0], [0.0, 1000.0]],
@@ -242,7 +242,7 @@ def import_reference(plane_path, pens_path, stick_path=None):
         pen_slots={
             pen: dict(
                 pose=list(finite_vector(p, 6, "펜 슬롯")),
-                z_offset_mm={"PEN_1": 11.8, "PEN_2": 12.3, "PEN_3": 12.8, "PEN_4": 12.5}[pen],
+                z_offset_mm={"PEN_1": 11.8, "PEN_2": 12.3, "PEN_3": 11.6, "PEN_4": 12.5}[pen],
             )
             for pen, p in zip(PENS, pens)
         },

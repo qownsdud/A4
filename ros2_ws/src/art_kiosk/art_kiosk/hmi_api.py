@@ -79,7 +79,10 @@ class CommandReply(BaseModel):
 def require_same_origin(request: Request) -> None:
     # 운영 요청에 따라 인증키를 요구하지 않습니다. 교차 출처 요청 차단은 유지합니다.
     origin = request.headers.get("origin")
-    if ((origin and origin != str(request.base_url).rstrip("/"))
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme).split(",")[0].strip()
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc).split(",")[0].strip()
+    expected = {str(request.base_url).rstrip("/"), f"{proto}://{host}"}
+    if ((origin and origin not in expected)
             or request.headers.get("sec-fetch-site") == "cross-site"):
         raise HTTPException(403, "동일 출처의 관리자 요청만 허용합니다.")
 
