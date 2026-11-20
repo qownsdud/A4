@@ -903,9 +903,18 @@ def run_robot_drawing(
         else:
             if hasattr(_dsr, "_ros2_set_current_tool") and not _dsr._ros2_set_current_tool.wait_for_service(timeout_sec=15.0):
                 raise RuntimeError("로봇 툴 서비스에 연결할 수 없습니다. sodreal 상태를 확인하세요.")
+            from DSR_ROBOT2 import (
+                set_robot_mode,
+                ROBOT_MODE_MANUAL,
+                ROBOT_MODE_AUTONOMOUS,
+            )
             node.get_logger().info(f"툴/TCP 설정 중: {TOOL_NAME}, {TCP_NAME}")
-            set_tool(TOOL_NAME)
-            set_tcp(TCP_NAME)
+            set_robot_mode(ROBOT_MODE_MANUAL)
+            try:
+                set_tool(TOOL_NAME)
+                set_tcp(TCP_NAME)
+            finally:
+                set_robot_mode(ROBOT_MODE_AUTONOMOUS)
 
         set_gripper(OFF, ON, "초기 재정렬 - 열기")
         set_gripper(ON, OFF, "초기 재정렬 - 닫기")

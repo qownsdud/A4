@@ -833,3 +833,72 @@
   - 잉크 번짐 방지: `simplify_tolerance_mm = 0.22`, `min_point_spacing_mm = 0.85`, `min_stroke_mm = 2.5`, `max_ink_passes = 1`, `cell_mm = 0.5`, `patch_mm = 3.0`, `max_local_ink_mm = 6.5`, `allow_cross_mm = 1.8`
   - 캘리그라피·다국어 정자체: 1순위 저장소 내장 `assets/fonts/NanumBrush.ttf` + 다국어 `NotoSans`/`NotoSansCJK`/`DejaVuSans`/`fontconfig` 동적 폴백(`_has_visible_glyph` 빈 한자 차단, HarfBuzz `raqm` 셰이핑, 엣지 추적 `used_edges`, 대칭 원형 점 중심 복구), 가로 영역 `50.0 ~ 247.0 mm`(좌측 정렬), `height_mm = 16.0 mm`, `maxlength = 20`, 사람 필순 정규화(`_orient_human_stroke`), 붓글씨 가변 Z 필압 `+0.7 mm ~ -1.3 mm` / 정자체 균일 높이 `0.0 mm` / `2.5 mm` 미만 짧은 점 `<= -0.3 mm`, `preview.svg` 선 굵기 `0.35 ~ 1.95 mm`
   - 원클릭 설치·실행: `./scripts/setup_env.bash`(새 PC 1회 설치·자체 점검) → `/home/qownsdud/Desktop/A4_Drawing.desktop` → `scripts/launch_a4_app.bash` (환경 사전 점검 → `sodreal`(`vendor` 자동 폴백) → `art_system.launch.py` 5노드 + `art_state_store` → Chrome/Chromium `--app` 창 + 종료 시 자동 정리)
+
+현재 시각(`2026-11-19 18:34`) 기준으로 `A4`, `ws_dsr`, `rokey_collaborate_1`의 모든 파일, Git 원격·로컬 상태, SQLite DB, 빌드 로그, 그리고 Antigravity 대화를 최신화하여 직전 히스토리 정리(`16:51 ~ 16:58`) 이후부터 지금까지의 전체 이력을 시간순으로 정리했습니다.
+
+---
+
+### 0. 현재 작업 상태 요약 (`2026-11-19 18:34` 기준)
+
+- **워크스페이스별 변동 유무**
+  - `ws_dsr` ([ws_dsr](file:///home/qownsdud/ws_cobot_pjt/ws_dsr)): `16:51` 이후 수정된 파일, 빌드 로그, Git 변동이 전혀 없습니다.
+  - `rokey_collaborate_1` ([rokey_collaborate_1](file:///home/qownsdud/Documents/rokey_collaborate_1)): 로컬 수정 파일은 없으나, 원격 저장소 동기화(`fetch`) 결과 `origin/main`, `origin/bae`, `origin/jang`, `origin/yongsoo`가 `A4`와 동일한 최신 원격 커밋으로 갱신되었습니다.
+  - `A4` ([A4](file:///home/qownsdud/ws_cobot_pjt/A4)): 현재 `bae` 브랜치에 있으며, `origin/main`·`origin/bae`의 최신 커밋 `1249779` 이후 로컬 미커밋 수정 2건([extractor.py](file:///home/qownsdud/ws_cobot_pjt/A4/ros2_ws/src/art_artwork_pipeline/art_artwork_pipeline/path_planner/extractor.py), [launch_a4_app.bash](file:///home/qownsdud/ws_cobot_pjt/A4/scripts/launch_a4_app.bash))이 반영되어 있습니다.
+- **현재 실시간 로봇 실행 상태**
+  - [art_state.db](file:///home/qownsdud/ws_cobot_pjt/A4/data/art_state.db)와 [art_system.log](file:///home/qownsdud/ws_cobot_pjt/A4/data/logs/art_system.log), [sodreal.log](file:///home/qownsdud/ws_cobot_pjt/A4/data/logs/sodreal.log) 기준 현재 실물 로봇 작업 `97c76a0a-d539-4b85-9cc7-3b73009a5efa`가 `DRAWING`(실물 그리기 진행 중) 상태로 실행 중이며, 총 `667`획 중 `325`획 완료(`PEN_2` 사용 중) 상태입니다.
+- **누적 통계 최신화**
+  - `A4` 전체 작업 디렉토리: `296`건(`data/jobs` `283`건 + `back/data/jobs` `13`건, `16:51` 이후 `29`건 추가 또는 갱신)
+  - `art_state.db`: 총 `30`건 등록, 실물 완주(`COMPLETED`) `10`건(직전 9건 + 1건 추가), `job_events` `3,134`건(`STROKE_COMPLETED` `2,942`건)
+  - `colcon build`: 누적 `446`회(`ws_dsr` `349`회 + `A4` `97`회, `17:23:31` 1회 추가)
+
+---
+
+### 1. 직전 히스토리 정리 마무리 및 첫 번째 `main`·`bae` 대통합 (`16:51 ~ 17:04`)
+
+- **16:51:49 ~ 16:58:54 — 직전 히스토리 문서 최신화 (대화 `52b9f5b2`)**
+  - 직전 대화에서 `2026-11-19 15:08 ~ 16:51` 구간 이벤트를 조사·반영하여 [PROJECT_HISTORY_KR.md](file:///home/qownsdud/ws_cobot_pjt/A4/docs/PROJECT_HISTORY_KR.md)를 총 835줄(`145,493B`)로 갱신하고, 파이프 표·비밀정보·미이스케이프 `$` 검증을 완료했습니다.
+- **17:00:54 ~ 17:01:25 — 로컬 최신 작업 `main`·`bae` 동시 푸시 (대화 `5c4f39b9`)**
+  - **요청**: 로컬의 최신 작업 상태를 `main`과 `bae` 브랜치에 모두 동일하게 반영해 달라는 요청을 처리했습니다.
+  - **처리**: `git status`, `git diff --stat`, `git fetch origin main bae`로 원격 상태를 점검한 뒤, `17:01:20`에 커밋 `1249779` (`Sync latest workspace state (Hangul/Unicode calligraphy, setup_env, assets, kiosk/bridge updates)`)를 생성해 `origin/bae`와 `origin/main`에 모두 푸시했습니다.
+  - **반영 파일 (총 15개, `+1,571 / -179`)**: [NanumBrush.ttf](file:///home/qownsdud/ws_cobot_pjt/A4/assets/fonts/NanumBrush.ttf), [PROJECT_HISTORY_KR.md](file:///home/qownsdud/ws_cobot_pjt/A4/docs/PROJECT_HISTORY_KR.md), `pictures/렌고쿠.jpeg`, [setup_env.bash](file:///home/qownsdud/ws_cobot_pjt/A4/scripts/setup_env.bash), [launch_a4_app.bash](file:///home/qownsdud/ws_cobot_pjt/A4/scripts/launch_a4_app.bash), `art_artwork_pipeline` 4개 파일(`generator.py`, `svg_exporter.py`, `pipeline_node.py`, `pipeline_runner.py`), `art_kiosk` 4개 파일(`app.js`, `index.html`, `style.css`, `workflow.py`), `art_kiosk_bridge` 2개 파일(`bridge_node.py`, `http_api.py`).
+- **17:04:48 — `origin/jang` 브랜치 `main` 병합 (`ab00054`)**
+  - 팀원 `TW-94-git`이 `17:01:20` 푸시된 `origin/main`(`1249779`)을 `jang` 브랜치로 병합(`Merge remote-tracking branch 'origin/main' into jang`)해 팀 간 동기화를 맞췄습니다.
+
+---
+
+### 2. 일본어 렌고쿠 캘리그라피 재테스트, `O(N²)` 140초 타임아웃 버그 수정 및 `flock` FD 9 상속 해결 (`17:03 ~ 17:32`)
+
+- **17:03:21 ~ 17:17:58 — `렌고쿠.jpeg` 일본어 문구 연속 테스트 및 3연속 타임아웃 실패**
+  - `photo=328,308B`(`pictures/렌고쿠.jpeg`, `596×335`)로 일본어 캘리그라피 추출을 반복 테스트했습니다.
+  - `17:04:46` `189c2c8f`: 문구 `'心を燃やせ'`, `475`획 (`PEN_1:147 / PEN_2:147 / PEN_3:147 / PEN_4:34`, `z_deltas_mm=True`) 생성 성공.
+  - `17:06:35` `425285f9`: 문구 `'心を燃やせ!!'`, `479`획 (`PEN_1:147 / PEN_2:147 / PEN_3:147 / PEN_4:38`, `z_deltas_mm=True`) 생성 성공.
+  - `17:08:45` `a60c36b4`: 문구 `'心を燃やせ、限界を超えろ！'`, `510`획 (`PEN_1:147 / PEN_2:147 / PEN_3:147 / PEN_4:69`, `z_deltas_mm=True`) 생성 성공.
+  - `17:09:19` `96f4a6d6`, `17:13:09` `ed4f610c`, `17:15:35` `908aa253`: 동일 이미지·문구(`'心を燃やせ、限界を超えろ！'`)에서 `detail` 값을 `73` 등으로 낮췄을 때 `drawing_plan.json` 생성까지 가지 못하고 3회 연속 실패했습니다.
+- **17:20:20 ~ 17:23:35 — `detail=100` vs `73` 타임아웃 원인 규명 및 `O(N)` 공간 그리드 병합 수정 (대화 `bb64c38c`)**
+  - **사용자 제보**: `detail=100`에서는 추출되는데 `73`에서는 추출이 실패하는 현상을 문의했습니다.
+  - **원인**: 실패한 작업 `908aa253`의 `lineart.png`에서 스켈레톤 추적 결과 raw stroke 조각이 **17,511개** 생성되었는데, [extractor.py](file:///home/qownsdud/ws_cobot_pjt/A4/ros2_ws/src/art_artwork_pipeline/art_artwork_pipeline/path_planner/extractor.py#L133-L219)의 `_bridge_close_strokes()`가 모든 선 쌍을 이중 루프(`O(N²)`)로 비교해 **140초 이상** 지연되면서 [bridge_node.py](file:///home/qownsdud/ws_cobot_pjt/A4/ros2_ws/src/art_kiosk_bridge/art_kiosk_bridge/bridge_node.py#L160)의 140초 응답 제한 시간을 초과한 것이 원인이었습니다.
+  - **수정 (`17:23:12`)**: `_bridge_close_strokes()`를 셀 크기 `max_gap_px`(`4.5 px`) 기반 **2D 공간 해시 그리드(`O(N)`)** 탐색으로 재작성해 인접 3×3 셀의 끝점만 비교하도록 개선했습니다.
+  - **검증 및 빌드 (`17:23:31 ~ 17:23:33`)**: 동일 `lineart.png` 기준 전체 처리 시간이 `detail=100` **0.76초**(340획), `detail=73` **0.75초**(339획)로 단축되었고, `colcon build --packages-select art_artwork_pipeline` (`build_2026-11-19_17-23-31`)가 종료 코드 `0`으로 성공했습니다.
+  - 수정 직전(`17:22:51`) `82fdb406` (`510`획)에 이어, `17:30:02`에 `a729c7e4` (`491`획: `PEN_1:135 / PEN_2:144 / PEN_3:143 / PEN_4:69`, `z_deltas_mm=True`) 계획이 생성되었습니다.
+- **17:24:26 ~ 17:25:48 — 앱 종료 후 재실행 시 `"이미 실행 중"` 잠금 오류 해결 (대화 `bb64c38c`)**
+  - **사용자 제보**: 선화 추출 후 앱을 껐다가 다시 켜면 이미 실행 중이라는 메시지와 함께 실행되지 않는 문제를 제보했습니다.
+  - **원인**: [launch_a4_app.bash](file:///home/qownsdud/ws_cobot_pjt/A4/scripts/launch_a4_app.bash)가 `/tmp/a4_drawing_app.lock`에 연 `flock` 파일 디스크립터 `FD 9`가 `zenity`, `ros2 launch`(두산 로봇·`art_system`), 브라우저 등 자식 프로세스에 그대로 상속되고, 종료 시 `cleanup()`이 `TERM`만 전송해 잔여 프로세스가 `FD 9`를 계속 점유하는 현상이 원인이었습니다.
+  - **수정**: 모든 백그라운드·자식 프로세스 실행 시 `9>&-`로 `FD 9`를 닫고, `cleanup()`에서 `kill -TERM` 후 `0.5s` 대기 뒤 `kill -KILL -- "-$pgid"`, `flock -u 9`, `exec 9>&-`로 강제 해제하도록 보완한 뒤 `bash -n` 문법 검사를 통과했습니다.
+- **17:32:27 — `origin/yongsoo` 브랜치 `최종 통합` 커밋 (`2d9b5be`)**
+  - 팀원 `dduter`(김용수)가 기존 `bc2f32c`(`2026-11-18 16:07:33`, `UI, 예외처리 수정`) 계보를 `origin/main`(`1249779`)과 완전히 동일한 트리로 통합한 `2d9b5be` (`최종 통합`)를 `origin/yongsoo`에 푸시했습니다. (`1249779`와 `2d9b5be` 간 파일 차이는 0건입니다.)
+
+---
+
+### 3. 실물 로봇 10번째 완주(`a729c7e4`) 및 현재 진행 중인 11번째 실물 작업(`97c76a0a`) (`17:30 ~ 18:34`)
+
+- **17:30:02 ~ 17:59:26 — 10번째 실물 로봇 완주: 렌고쿠 + 일본어 명대사 (`a729c7e4-527c-4b80-971f-bafc9ad08a77`)**
+  - **입력**: `pictures/렌고쿠.jpeg` (`596×335`), 문구 `'心を燃やせ、限界を超えろ！'`
+  - **실행 기록**: `17:30:02` `JOB_CREATED`(`QUEUED`, 작업 등록) → `JOB_DISPATCHED`(`DISPATCHING`) → `STATE_CHANGED`(`DRAWING`, 실물 그리기 시작) → `17:59:26` `JOB_FINISHED`(`COMPLETED`, 정상 완료).
+  - **정량 결과**: 총 소요 시간 `1,764.3초`(약 29분 24초), **491/491획** 완주 (`PEN_1:135 / PEN_2:144 / PEN_3:143 / PEN_4:69`, `z_deltas_mm=True`, 최종 펜 `PEN_4`).
+- **18:09:41 ~ 18:16:09 — 앱 재기동 및 새 작품(`622×493`, `'Counting ★/☆! 밤하늘의 펄~'`) 21회 연속 파라미터 실험**
+  - `18:09:41` [art_system.log](file:///home/qownsdud/ws_cobot_pjt/A4/data/logs/art_system.log) 기준으로 앱을 새로 기동했습니다.
+  - `18:11:37 ~ 18:16:09` 동안 `622×493` PNG(`665,615B`) 이미지와 문구 `'Counting ★! 밤하늘의 펄~'`(초반 8회) → `'Counting ☆! 밤하늘의 펄~'`(후반 13회)을 조합해 `detail` 값을 `100.0`, `8.0`, `35.0`, `96.0`, `50.0`, `75.0`, `70.0`, `64.0`, `66.0`, `65.0`, `66.0`으로 조정하며 총 **21건**의 추출·미리보기 실험을 수행했습니다(`cfbb676c` ~ `97c76a0a`, 중간 `c9f55713` 1건은 photo 저장 직후 취소/미완료).
+  - 추출 결과 획수는 `detail`에 따라 `358`획(`detail=8.0`) ~ `667`획(`detail=66.0` 등) 범위로 산출되었고, 특히 `★`에서 `☆`로 바꾼 뒤 `PEN_4` 캘리그라피 획수는 `43`획에서 `45`획으로 증가했습니다.
+- **18:16:26 ~ 현재(`18:34`) — 11번째 실물 로봇 드로잉 진행 중 (`97c76a0a-d539-4b85-9cc7-3b73009a5efa`)**
+  - **입력**: `622×493` PNG, `detail=66.0`, 문구 `'Counting ☆! 밤하늘의 펄~'`, 총 `667`획 (`PEN_1:198 / PEN_2:216 / PEN_3:208 / PEN_4:45`, `z_deltas_mm=True`).
+  - **현재 상태**: `18:16:26` `JOB_CREATED` → `JOB_DISPATCHED` → `DRAWING` 진입 후 현재까지 중단 없이 실물 드로잉이 계속 진행 중이며, `18:34:09` 조회 기준 `325/667`획 완료 및 `PEN_2` 사용 중입니다.
