@@ -134,59 +134,86 @@ def _bridge_close_strokes(
     strokes: list[list[tuple[float, float]]],
     max_gap_px: float = 4.5,
 ) -> list[list[tuple[float, float]]]:
-    """Merge open strokes whose endpoints are within max_gap_px to reduce fragmented gaps."""
+    """Merge open strokes whose endpoints are within max_gap_px using a spatial grid."""
     if max_gap_px <= 0 or len(strokes) < 2:
         return strokes
 
     pool = [list(s) for s in strokes]
-    merged: list[list[tuple[float, float]]] = []
+    n = len(pool)
+    is_closed = [
+        len(s) >= 3 and math.hypot(s[0][0] - s[-1][0], s[0][1] - s[-1][1]) < 1.5
+        for s in pool
+    ]
+    active = [True] * n
+    inv_cell = 1.0 / max_gap_px
 
-    while pool:
-        cur = pool.pop(0)
-        # Do not merge closed loops
-        if len(cur) >= 3 and math.hypot(cur[0][0] - cur[-1][0], cur[0][1] - cur[-1][1]) < 1.5:
+    def _cell(pt: tuple[float, float]) -> tuple[int, int]:
+        return (int(math.floor(pt[0] * inv_cell)), int(math.floor(pt[1] * inv_cell)))
+
+    grid: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for idx, s in enumerate(pool):
+        if is_closed[idx]:
+            continue
+        grid.setdefault(_cell(s[0]), []).append((idx, 0))
+        grid.setdefault(_cell(s[-1]), []).append((idx, 1))
+
+    merged: list[list[tuple[float, float]]] = []
+    for i in range(n):
+        if not active[i]:
+            continue
+        active[i] = False
+        cur = pool[i]
+        if is_closed[i]:
             merged.append(cur)
             continue
 
-        changed = True
-        while changed and pool:
-            changed = False
+        while True:
             best_i = -1
             best_dist = max_gap_px
-            mode = ""  # end->start, end->end, start->start, start->end
+            mode = ""
 
             cx0, cy0 = cur[0]
             cx1, cy1 = cur[-1]
 
-            for i, cand in enumerate(pool):
-                if len(cand) >= 3 and math.hypot(cand[0][0] - cand[-1][0], cand[0][1] - cand[-1][1]) < 1.5:
-                    continue
-                ax0, ay0 = cand[0]
-                ax1, ay1 = cand[-1]
+            gx1, gy1 = _cell((cx1, cy1))
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for j, end_flag in grid.get((gx1 + dx, gy1 + dy), ()):
+                        if not active[j]:
+                            continue
+                        pt = pool[j][0] if end_flag == 0 else pool[j][-1]
+                        d = math.hypot(cx1 - pt[0], cy1 - pt[1])
+                        if d < best_dist or (d == best_dist and (best_i < 0 or j < best_i)):
+                            best_dist = d
+                            best_i = j
+                            mode = "e_s" if end_flag == 0 else "e_e"
 
-                checks = (
-                    (math.hypot(cx1 - ax0, cy1 - ay0), "e_s"),
-                    (math.hypot(cx1 - ax1, cy1 - ay1), "e_e"),
-                    (math.hypot(cx0 - ax1, cy0 - ay1), "s_e"),
-                    (math.hypot(cx0 - ax0, cy0 - ay0), "s_s"),
-                )
-                for d, m in checks:
-                    if d < best_dist:
-                        best_dist = d
-                        best_i = i
-                        mode = m
+            gx0, gy0 = _cell((cx0, cy0))
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for j, end_flag in grid.get((gx0 + dx, gy0 + dy), ()):
+                        if not active[j]:
+                            continue
+                        pt = pool[j][-1] if end_flag == 1 else pool[j][0]
+                        d = math.hypot(cx0 - pt[0], cy0 - pt[1])
+                        if d < best_dist or (d == best_dist and (best_i < 0 or j < best_i)):
+                            best_dist = d
+                            best_i = j
+                            mode = "s_e" if end_flag == 1 else "s_s"
 
-            if best_i >= 0:
-                nxt = pool.pop(best_i)
-                if mode == "e_s":
-                    cur = cur + nxt
-                elif mode == "e_e":
-                    cur = cur + list(reversed(nxt))
-                elif mode == "s_e":
-                    cur = nxt + cur
-                elif mode == "s_s":
-                    cur = list(reversed(nxt)) + cur
-                changed = True
+            if best_i < 0:
+                break
+
+            active[best_i] = False
+            nxt = pool[best_i]
+            if mode == "e_s":
+                cur = cur + nxt
+            elif mode == "e_e":
+                cur = cur + list(reversed(nxt))
+            elif mode == "s_e":
+                cur = nxt + cur
+            elif mode == "s_s":
+                cur = list(reversed(nxt)) + cur
 
         merged.append(cur)
 
