@@ -68,6 +68,8 @@ class DoosanAdapter:
             SetCurrentTool,
             SetCurrentTcp,
             GetRobotSystem,
+            GetRobotMode,
+            SetRobotMode,
         )
         from rclpy.callback_groups import ReentrantCallbackGroup
 
@@ -83,6 +85,8 @@ class DoosanAdapter:
             set_tool=(SetCurrentTool, "tool/set_current_tool"),
             set_tcp=(SetCurrentTcp, "tcp/set_current_tcp"),
             system=(GetRobotSystem, "system/get_robot_system"),
+            get_mode=(GetRobotMode, "system/get_robot_mode"),
+            set_mode=(SetRobotMode, "system/set_robot_mode"),
         )
         prefix = f"/{settings['robot_id']}/dsr_controller2/"
         for key, (typ, suffix) in services.items():
@@ -154,17 +158,36 @@ class DoosanAdapter:
 
     def set_tool_and_tcp(self):
         self.require_ready()
-        deadline = time.monotonic() + 3.0
-        for key, value in (("set_tool", self.settings["tool_name"]), ("set_tcp", self.settings["tcp_name"])):
-            try:
-                self.control.call(key, deadline, name=value)
-            except RuntimeError as exc:
-                if not str(exc).startswith("DRIVER_REJECTED_"):
-                    raise
-                if self.node is not None:
-                    self.node.get_logger().warning(
-                        f"{key}({value}) 거부됨 — 기존 설정으로 계속 진행합니다: {exc}"
-                    )
+        deadline = time.monotonic() + 5.0
+        want_tool = self.settings["tool_name"]
+        want_tcp = self.settings["tcp_name"]
+        cur_tool = getattr(self.control.call("tool", deadline), "info", "") if "tool" in self.control.clients else ""
+        cur_tcp = getattr(self.control.call("tcp", deadline), "info", "") if "tcp" in self.control.clients else ""
+        if cur_tool == want_tool and cur_tcp == want_tcp:
+            return
+        # 두산 제어기는 MANUAL 모드(0)에서만 set_current_tool / set_current_tcp를 허용합니다.
+        has_mode = "set_mode" in self.control.clients and self.control.clients["set_mode"].service_is_ready()
+        switched_manual = False
+        try:
+            for key, value in (("set_tool", want_tool), ("set_tcp", want_tcp)):
+                try:
+                    self.control.call(key, deadline, name=value)
+                except RuntimeError as exc:
+                    if not str(exc).startswith("DRIVER_REJECTED_") or not has_mode:
+                        raise
+                    if not switched_manual:
+                        self.control.call("set_mode", deadline, robot_mode=0)
+                        switched_manual = True
+                    self.control.call(key, deadline, name=value)
+        finally:
+            if switched_manual:
+                self.control.call("set_mode", time.monotonic() + 3.0, robot_mode=1)
+        if "tcp" in self.control.clients and self.control.clients["tcp"].service_is_ready():
+            verified_tcp = getattr(self.control.call("tcp", time.monotonic() + 2.0), "info", "")
+            if verified_tcp != want_tcp:
+                raise RuntimeError(
+                    f"TCP({want_tcp}) 적용 확인 실패 (현재 TCP={verified_tcp!r}). 그리퍼 Z 오프셋 누락으로 인한 하강 충돌을 방지하기 위해 중단합니다."
+                )
 
     def move_joint(self, joints, velocity=None, acceleration=None):
         self.require_ready()

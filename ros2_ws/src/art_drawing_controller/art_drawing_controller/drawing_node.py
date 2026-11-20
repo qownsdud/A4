@@ -38,13 +38,9 @@ class DrawingNode(Node):
             os.environ.get("ART_JOB_PLAN_ROOT", str(a4_root / "data/jobs"))
         ).expanduser()
         self.adapter = DoosanAdapter()
-        path = profile_path or os.environ.get("ART_EQUIPMENT_PROFILE")
+        self._profile_path = profile_path or os.environ.get("ART_EQUIPMENT_PROFILE")
         try:
-            self._settings = (
-                load_equipment_settings(path)
-                if path
-                else load_default_equipment_settings()
-            )
+            self._reload_equipment_settings()
             self.adapter = adapter_factory(self, self._settings)
         except (ValueError, OSError, ImportError, KeyError) as exc:
             self._settings = None
@@ -59,6 +55,15 @@ class DrawingNode(Node):
             cancel_callback=self.cancel,
             callback_group=ReentrantCallbackGroup(),
         )
+
+    def _reload_equipment_settings(self):
+        self._settings = (
+            load_equipment_settings(self._profile_path)
+            if self._profile_path
+            else load_default_equipment_settings()
+        )
+        if self.adapter is not None and getattr(self.adapter, "settings", None) is not None:
+            self.adapter.settings = self._settings
 
     def _recover_to_home(self):
         if not self._busy.acquire(timeout=5.0):
@@ -82,6 +87,7 @@ class DrawingNode(Node):
         if not self._busy.acquire(blocking=False):
             return GoalResponse.REJECT
         try:
+            self._reload_equipment_settings()
             plan = self._plan(request)
             if not 1 <= request.start_stroke_id <= len(plan["strokes"]):
                 raise ValueError("시작 획 오류")
