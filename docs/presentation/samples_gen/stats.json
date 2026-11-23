@@ -1,0 +1,200 @@
+{
+  "orig_size": "896x1200",
+  "saved_size": "765x1024",
+  "lineart_compare": {
+    "baseline": {
+      "strokes": 117,
+      "points": 1841
+    },
+    "face_roi": {
+      "strokes": 122,
+      "points": 1879
+    },
+    "face_grabcut": {
+      "strokes": 87,
+      "points": 1172
+    }
+  },
+  "slider": {
+    "0": {
+      "canny": [
+        71,
+        182
+      ],
+      "face_canny": [
+        54,
+        134
+      ],
+      "min_length_px": 12.0,
+      "strokes": 68,
+      "points": 872
+    },
+    "50": {
+      "canny": [
+        55,
+        145
+      ],
+      "face_canny": [
+        45,
+        115
+      ],
+      "min_length_px": 7.0,
+      "strokes": 87,
+      "points": 1147
+    },
+    "100": {
+      "canny": [
+        40,
+        114
+      ],
+      "face_canny": [
+        34,
+        91
+      ],
+      "min_length_px": 5.2,
+      "strokes": 115,
+      "points": 1636
+    }
+  },
+  "raw_skeleton_strokes": 3368,
+  "bridge": {
+    "0.0": {
+      "strokes": 122,
+      "points": 424,
+      "travel_px": 2672.8
+    },
+    "4.0": {
+      "strokes": 87,
+      "points": 1172,
+      "travel_px": 2578.2
+    },
+    "12.0": {
+      "strokes": 50,
+      "points": 1351,
+      "travel_px": 1958.6
+    }
+  },
+  "eps_compare": {
+    "High (len>=5.2, eps=0.5)": {
+      "strokes": 112,
+      "points": 3492,
+      "draw_px": 8000.7
+    },
+    "Balanced (len>=7.0, eps=0.9)": {
+      "strokes": 87,
+      "points": 1172,
+      "draw_px": 6128.7
+    },
+    "Light (len>=15.0, eps=1.8)": {
+      "strokes": 71,
+      "points": 462,
+      "draw_px": 5200.4
+    }
+  },
+  "plan_before_opt": {
+    "total_strokes": 105,
+    "total_points": 1208,
+    "by_pen": {
+      "PEN_1": {
+        "strokes": 33,
+        "length_mm": 957.6
+      },
+      "PEN_2": {
+        "strokes": 36,
+        "length_mm": 968.8
+      },
+      "PEN_3": {
+        "strokes": 36,
+        "length_mm": 969.0
+      }
+    }
+  },
+  "plan_after_opt": {
+    "total_strokes": 130,
+    "total_points": 798,
+    "by_pen": {
+      "PEN_1": {
+        "strokes": 41,
+        "length_mm": 807.2
+      },
+      "PEN_2": {
+        "strokes": 38,
+        "length_mm": 742.0
+      },
+      "PEN_3": {
+        "strokes": 51,
+        "length_mm": 778.1
+      }
+    }
+  },
+  "final_e2e": {
+    "total_strokes": 133,
+    "total_points": 1105,
+    "by_pen": {
+      "PEN_1": {
+        "strokes": 39,
+        "length_mm": 713.5
+      },
+      "PEN_2": {
+        "strokes": 38,
+        "length_mm": 657.2
+      },
+      "PEN_3": {
+        "strokes": 40,
+        "length_mm": 678.2
+      },
+      "PEN_4": {
+        "strokes": 16,
+        "length_mm": 166.2
+      }
+    }
+  },
+  "cv_modes": {
+    "dodge": {
+      "strokes": 154,
+      "points": 1212,
+      "draw_px": 6065.0
+    },
+    "adaptive": {
+      "strokes": 147,
+      "points": 1039,
+      "draw_px": 6379.0
+    },
+    "canny": {
+      "strokes": 87,
+      "points": 1172,
+      "draw_px": 6128.7
+    }
+  },
+  "extractor_options": {
+    "Default (smooth=0, thick=False)": {
+      "strokes": 87,
+      "points": 1172,
+      "draw_px": 6128.7
+    },
+    "Chaikin (smooth=2, thick=False)": {
+      "strokes": 85,
+      "points": 1016,
+      "draw_px": 5842.4
+    },
+    "Thick Contours (smooth=0, thick=True)": {
+      "strokes": 87,
+      "points": 1172,
+      "draw_px": 6128.7
+    }
+  },
+  "landscape_korean": {
+    "paper_mm": {
+      "width": 297.0,
+      "height": 210.0
+    },
+    "total_strokes": 118,
+    "total_points": 1166,
+    "strokes_by_pen": {
+      "PEN_1": 29,
+      "PEN_2": 29,
+      "PEN_3": 30,
+      "PEN_4": 30
+    }
+  }
+}

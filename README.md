@@ -1,60 +1,104 @@
-# A4 퍼즐 드로잉 로봇
+# A4 퍼즐 드로잉 로봇 (A4 Drawing Studio)
+> **조 이름:** A그룹 - 4조 : A4
+> **팀원:** 김용수_류민선_배준영_장태원
 
-사진·영문 문구 입력 후 경로를 자동 생성하고 사용자 **그리기** 클릭으로 시작합니다.
-관리자는 현재 작업을 자동 조회해 일시정지·재개·중단만 수행합니다.
-[참고 코드 통합 결과와 새 선화 환경](docs/REFERENCE_INTEGRATION_KR.md)을 확인하세요.
-[최신 HMI 직접 시험 안내](docs/HMI_MANUAL_TEST_KR.md)를 먼저 확인하세요.
+## 1. 🎨 시스템 설계 및 플로우 차트
+프로젝트의 전체적인 구조와 소프트웨어 흐름도입니다.
 
-Ubuntu 24.04 + ROS2 Jazzy 기반 사진 선화·A4 경로 생성·작업 관리 시스템입니다.
-주요 구현은 `ros2_ws/src/`의 기능별 ROS2 패키지로 관리합니다.
+### 1-1. 시스템 설계도 (System Architecture)
+<p align="center">
+  <img src="./images/system_design.png" alt="시스템 설계도 이미지" width="800">
+</p>
+* *설명: 웹 키오스크 UI에서 입력받은 사진과 문구를 ROS2 브리지(Kiosk Bridge)를 통해 Artwork Pipeline과 Job Manager(SQLite State Store)로 전달하고, Drawing Controller가 두산 M0609 로봇과 OnRobot RG2 그리퍼를 제어해 A4 드로잉을 수행하는 전체 통신 구조를 나타냅니다.*
 
-- **art_kiosk**: 사용자 사진 입력·선화 확인·관리자 작업 제어
-- **art_kiosk_bridge**: HTTP ↔ ROS 서비스·액션 중계
-- **art_artwork_pipeline**: CV/DL/MediaPipe 혼합 선화·벡터 경로·A4 mm·퍼즐 색상·영문 필기체
-- **art_job_manager**: SQLite·상태 머신·체크포인트·중단과 복구
-- **art_drawing_controller**: 확정 계획 실행·펜 교체·실제 관측 기반 제어와 안전 거절
-- **art_bringup**: 전체 Launch와 참고 설정
-- **art_interfaces**: 메시지·서비스·액션 계약
+### 1-2. 플로우 차트 (Flow Chart)
+<p align="center">
+  <img src="./images/flow_chart.png" alt="플로우 차트 이미지" width="800">
+</p>
+* *설명: 사용자 입력(웹 키오스크)부터 이미지 처리(MFL-LD 혼합 선화·배경 제거), 벡터화 및 경로 생성(SVG·3색 퍼즐 분할), 작업 관리(등록·상태 전이·진행률 계산), 로봇 드로잉 실행(펜 교체·외력 감지·안전 정지)까지의 전체 프로세스 진행도를 나타냅니다.*
 
-## 빌드와 실행
+---
 
+## 2. 🖥️ 운영체제 환경 (OS Environment)
+이 프로젝트는 다음 환경에서 개발하였습니다.
+
+* **OS:** Ubuntu 24.04.5 LTS
+* **ROS Version:** ROS2 Jazzy
+* **Language:** Python 3.12.3
+* **IDE:** VS Code
+
+---
+
+## 3. 🛠️ 사용 장비 목록 (Hardware List)
+프로젝트에 사용된 주요 하드웨어 장비입니다.
+
+* **Doosan Robotics M0609 (6축 협동로봇)**
+  * **수량:** 1
+  * **비고:** A4 드로잉 및 펜 교체 수행 (`host:=192.168.1.100`, `port:=12345`, `model:=m0609`)
+* **OnRobot RG2 (전동 그리퍼)**
+  * **수량:** 1
+  * **비고:** 드로잉 펜 파지 및 슬롯 교체 (`m0609_rg2_bringup`)
+* **드로잉 펜 및 거치대 슬롯 (`PEN_1` ~ `PEN_4`, 스틱 슬롯)**
+  * **수량:** 펜 4슬롯, 스틱 1슬롯
+  * **비고:** 그림용 3색 펜(`PEN_1`~`PEN_3`), 캘리그래피 펜(`PEN_4`) 거치 (`config/pen_slots.json`, `config/stick_slot.json`)
+* **A4 용지 및 작업대**
+  * **수량:** 1
+  * **비고:** 가로 `297.0 × 210.0 mm` 규격 (`ros2_ws/src/art_bringup/config/paper.yaml`, `config/plane_calibration.json`)
+* **제어 PC 및 웹캠**
+  * **수량:** 1
+  * **비고:** ROS2 노드, 웹 키오스크 서버, AI 선화 추론 및 사진 촬영
+
+---
+
+## 4. 📦 의존성 (Dependencies)
+프로젝트 실행에 필요한 라이브러리입니다.
+
+* **초기 환경 일괄 설치 스크립트:** `./scripts/setup_env.bash`
+* **ROS 2 / 시스템:** Ubuntu 24.04 + ROS2 Jazzy, `rclpy`, `std_msgs`, `doosan-robot2`, `onrobot-ros2`, `rg2`, `python3-opencv`, `python3-pil`, `python3-numpy`, `python3-scipy`, `python3-fonttools`
+* **웹 / 브리지 (pip):**
+  * `fastapi >= 0.110, < 1.0`
+  * `uvicorn[standard] >= 0.29`
+  * `httpx >= 0.27`
+  * `python-multipart >= 0.0.9`
+  * `pydantic >= 2.0`
+* **AI 선화 추론 (`ros2_ws/src/art_artwork_pipeline/requirements-dl.txt`):**
+  * `torch == 2.6.0`
+  * `torchvision == 0.21.0`
+  * `controlnet-aux == 0.0.10`
+  * `transformers == 4.57.6`
+  * `mediapipe == 0.10.21`
+  * `opencv-contrib-python == 4.11.0.86`
+  * `opencv-python-headless == 4.11.0.86`
+  * `pillow == 13.0.0`
+  * `numpy == 1.26.4`
+
+---
+
+## 5. ▶️ 실행 순서 (Usage Guide)
+프로젝트를 실행하기 위한 순서입니다. 터미널 명령어를 순서대로 입력해 주세요.
+
+### Step 1. 로봇 초기화 및 드라이버 연결
+로봇의 전원을 켜고 이더넷(`192.168.1.100`) 통신을 연결합니다.
+```bash
+source /opt/ros/jazzy/setup.bash
+source ~/A4/ros2_ws/install/setup.bash
+ros2 launch m0609_rg2_bringup bringup.launch.py mode:=real host:=192.168.1.100 port:=12345 model:=m0609
+```
+
+### Step 2. 메인 시스템 노드 실행
+A4 드로잉 파이프라인, 작업 관리자, 컨트롤러, 브리지, 키오스크 노드를 일괄 실행합니다.
 ```bash
 cd ~/A4/ros2_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
 source install/setup.bash
 export ART_JOB_PLAN_ROOT="$HOME/A4/data/jobs"
-export ART_LINEART_METHOD=cv
+export ART_STATE_DB_PATH="$HOME/A4/data/art_state.db"
+export ART_LINEART_METHOD=mfl_ld
 ros2 launch art_bringup art_system.launch.py
 ```
+> 참고: 로봇 연결부터 키오스크 앱 창 실행까지 한 번에 실행하려면 `~/A4/scripts/launch_a4_app.bash`를 실행할 수 있습니다.
 
-웹은 `http://127.0.0.1:8000`, 관리자 화면은 `/admin`입니다. 관리자 화면은 인증키 없이 열립니다. 기본 접속은 로컬 주소이며 교차 출처 요청은 거절합니다.
-경로 자동 생성 → 사용자 미리보기 확인 → 그리기 승인 → 작업 자동 등록 순서입니다.
-실물 M0609/RG2와 보정·펜 이격은 미검증이며 실물 검증 프로필을 설정하지 않은 Controller는 물리 실행 Goal을 거절합니다.
-제공 인물 사진의 혼합 모델 추론은 확인했습니다. 실물 드로잉과 한글 필기체는 검증·지원 완료로 간주하지 않습니다.
-
-## 테스트
-
-```bash
-cd ~/A4
-source /opt/ros/jazzy/setup.bash
-source ~/ws_cobot_pjt/ws_dsr/install/setup.bash
-source ros2_ws/install/setup.bash
-source scripts/local_test_env.bash
-PYTHONPATH="/tmp/a4-hmi-js-check:$PYTHONPATH" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ROS_DOMAIN_ID=99 \
-  python3 -m pytest -c /dev/null --rootdir=. -o cache_dir=/tmp/a4-pytest-cache tests -q -rs
-```
-
-QuickJS가 없으면 프런트엔드 최소 DOM 시험은 건너뜁니다. 테스트 도메인에는 별도 실행 노드를 띄우지 않습니다.
-
-- [통합 결과·의존성·실행·안전 경계](docs/ROS2_PACKAGE_REFACTOR_KR.md)
-- [실제 파일 트리](docs/ROS2_REFACTOR_FILE_TREE.txt)
-- [키오스크](ros2_ws/src/art_kiosk/README.md)
-- [ArtworkPipeline](ros2_ws/src/art_artwork_pipeline/README.md)
-- [기존 참고 데이터](data/reference/README.md)
-
-구형 Phase 호환 진입점과 중복 설치 안내는 제거했습니다. 기존 데이터는 `data/reference/`로 이동했고 모든 회귀 시험은 `tests/` 아래에 있습니다.
-
-실물 로봇 담당자는 [실물 로봇 팀 인계 문서](docs/ROBOT_TEAM_HANDOFF_KR.md)에서 현재 구현 범위와 Action 계약을 확인하세요.
-
-[획 중간 일시정지·재개 구현과 팀원 연결 방법](docs/CONTINUOUS_PAUSE_RESUME_KR.md)을 확인하세요.
+### Step 3. 키오스크 및 관리자 화면 접속
+브라우저에서 아래 주소로 접속해 사진·문구를 입력하고 드로잉을 시작합니다.
+* **사용자 키오스크:** `http://127.0.0.1:8000`
+* **관리자 제어 화면:** `http://127.0.0.1:8000/admin`
